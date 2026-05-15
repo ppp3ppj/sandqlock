@@ -12,9 +12,10 @@
   },
   "license": "MIT",
   "dependencies": {
-    "solid-js": "^1.9.12",
     "@tauri-apps/api": "^2.11.0",
-    "@tauri-apps/plugin-opener": "^2.5.4"
+    "@tauri-apps/plugin-opener": "^2.5.4",
+    "remixicon": "^4.9.1",
+    "solid-js": "^1.9.12"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.0",
