@@ -8,42 +8,47 @@ function App() {
   const [name, setName] = createSignal("");
 
   async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
     setGreetMsg(await invoke("greet", { name: name() }));
   }
 
   return (
-    <main class="container">
-      <h1>Welcome to Tauri + Solid</h1>
+    <main class="min-h-screen flex flex-col items-center justify-center gap-6 p-8">
+      <h1 class="text-3xl font-bold">Welcome to Tauri + Solid</h1>
 
-      <div class="row">
+      <div class="flex gap-4">
         <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" class="logo vite" alt="Vite logo" />
+          <img src="/vite.svg" class="h-20 p-4 transition-all duration-300 hover:drop-shadow-[0_0_2em_#747bff]" alt="Vite logo" />
         </a>
         <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" class="logo tauri" alt="Tauri logo" />
+          <img src="/tauri.svg" class="h-20 p-4 transition-all duration-300 hover:drop-shadow-[0_0_2em_#24c8db]" alt="Tauri logo" />
         </a>
         <a href="https://solidjs.com" target="_blank">
-          <img src={logo} class="logo solid" alt="Solid logo" />
+          <img src={logo} class="h-20 p-4 transition-all duration-300 hover:drop-shadow-[0_0_2em_#2f5d90]" alt="Solid logo" />
         </a>
       </div>
-      <p>Click on the Tauri, Vite, and Solid logos to learn more.</p>
+
+      <p class="text-base-content/70">Click on the Tauri, Vite, and Solid logos to learn more.</p>
 
       <form
-        class="row"
+        class="flex gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           greet();
         }}
       >
         <input
-          id="greet-input"
+          class="input input-bordered"
           onChange={(e) => setName(e.currentTarget.value)}
           placeholder="Enter a name..."
         />
-        <button type="submit">Greet</button>
+        <button class="btn btn-primary" type="submit">Greet</button>
       </form>
-      <p>{greetMsg()}</p>
+
+      {greetMsg() && (
+        <div class="alert alert-success w-auto">
+          <span>{greetMsg()}</span>
+        </div>
+      )}
     </main>
   );
 }
