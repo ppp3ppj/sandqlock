@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "stand-qlock",
+  "productName": "SandQlock",
   "version": "0.1.0",
   "identifier": "com.ppp3ppj.stand-qlock",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "stand-qlock",
+        "title": "SandQlock",
         "width": 800,
         "height": 600
       }

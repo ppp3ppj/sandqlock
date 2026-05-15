@@ -1,4 +1,4 @@
-# stand-qlock
+# SandQlock
 
 ## Tech Stack
 

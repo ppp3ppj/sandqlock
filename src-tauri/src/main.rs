@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    stand_qlock_lib::run()
+    sandqlock_lib::run()
 }
