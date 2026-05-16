@@ -202,8 +202,18 @@ Reconnects → push_time_entries() loops 200 POST requests sequentially.
 200 entries × ~200ms each = ~40 seconds to drain the queue.
 UI is usable (local reads still work) but sync takes a long time.
 
-**Fix (not yet implemented):**
-Batch create endpoint on the server, or parallel push with a concurrency limit.
+**✅ Fixed — bulk create endpoint:**
+
+```
+All pending_creates → POST /api/json/time-entries/bulk  (1 request)
+pending_update / pending_delete → individual PATCH/DELETE (fewer in number)
+```
+
+200 creates × 200ms sequential → 1 bulk request × 200ms total.
+
+Key design: client sends its own UUID with each entry (`uuid_primary_key :id, writable?: true`
+in the Ash resource). Server stores the client UUID as-is. No UUID reconciliation needed.
+Failed entries remain `pending_create` and retry individually on next sync.
 
 ---
 

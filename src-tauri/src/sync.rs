@@ -194,19 +194,117 @@ async fn push_time_entries(pool: &SqlitePool, token: &str) -> Result<u32, String
     .map_err(|e| e.to_string())?;
 
     let mut count = 0u32;
-    for entry in pending {
+
+    // Batch all pending_creates into one request
+    let creates: Vec<&TimeEntryRow> = pending
+        .iter()
+        .filter(|e| e.sync_status == "pending_create")
+        .collect();
+
+    if !creates.is_empty() {
+        count += push_bulk_create(&client, pool, token, &creates).await?;
+    }
+
+    // Individual PATCH/DELETE (fewer in number, no batching needed)
+    for entry in pending.iter().filter(|e| e.sync_status != "pending_create") {
         let ok = match entry.sync_status.as_str() {
-            "pending_create" => push_create(&client, pool, token, &entry).await,
-            "pending_update" => push_update(&client, pool, token, &entry).await,
-            "pending_delete" => push_delete(&client, pool, token, &entry).await,
+            "pending_update" => push_update(&client, pool, token, entry).await,
+            "pending_delete" => push_delete(&client, pool, token, entry).await,
             _ => Ok(()),
         };
         if ok.is_ok() {
             count += 1;
         }
-        // continue on individual failure — drain as much as possible
     }
+
     Ok(count)
+}
+
+async fn push_bulk_create(
+    client: &Client,
+    pool: &SqlitePool,
+    token: &str,
+    entries: &[&TimeEntryRow],
+) -> Result<u32, String> {
+    #[derive(Serialize)]
+    struct EntryPayload<'a> {
+        id: &'a str,
+        task_name: &'a str,
+        duration_minutes: i32,
+        date: &'a str,
+        overtime: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        project_id: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        category_id: Option<&'a str>,
+    }
+
+    #[derive(Serialize)]
+    struct BulkRequest<'a> {
+        entries: Vec<EntryPayload<'a>>,
+    }
+
+    #[derive(Deserialize)]
+    struct CreatedEntry {
+        id: String,
+        inserted_at: Option<String>,
+        updated_at: Option<String>,
+    }
+
+    #[derive(Deserialize)]
+    struct BulkResponse {
+        created: Vec<CreatedEntry>,
+        errors: Vec<serde_json::Value>,
+    }
+
+    let payload = BulkRequest {
+        entries: entries
+            .iter()
+            .map(|e| EntryPayload {
+                id: &e.id,
+                task_name: &e.task_name,
+                duration_minutes: e.duration_minutes,
+                date: &e.date,
+                overtime: e.overtime,
+                project_id: e.project_id.as_deref(),
+                category_id: e.category_id.as_deref(),
+            })
+            .collect(),
+    };
+
+    let res = client
+        .post(format!("{BASE_URL}/api/json/time-entries/bulk"))
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json")
+        .header("Authorization", format!("Bearer {token}"))
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !res.status().is_success() {
+        return Err(format!("bulk create failed with {}", res.status()));
+    }
+
+    let body: BulkResponse = res.json().await.map_err(|e| e.to_string())?;
+
+    // Client UUIDs == server UUIDs — no reconciliation needed, just mark synced
+    for created in &body.created {
+        sqlx::query(
+            "UPDATE time_entries
+             SET sync_status='synced', inserted_at=?, updated_at=?
+             WHERE id=?",
+        )
+        .bind(created.inserted_at.as_deref().unwrap_or(""))
+        .bind(created.updated_at.as_deref().unwrap_or(""))
+        .bind(&created.id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+
+    // Entries in `body.errors` remain pending_create and retry on next sync
+    Ok(body.created.len() as u32)
 }
 
 async fn push_create(
