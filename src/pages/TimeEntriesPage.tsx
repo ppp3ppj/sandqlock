@@ -1,11 +1,21 @@
 import { createSignal, createEffect, For, Show } from "solid-js";
 import { listTimeEntries, deleteTimeEntry, TimeEntry } from "../lib/qlock-api";
 
+interface TimerDraft {
+  task_name: string;
+}
+
 interface Props {
   token: string;
   onLogout: () => void;
   onAdd: (date: string) => void;
   onEdit: (entry: TimeEntry) => void;
+  onStartTimer: () => void;
+  onStopTimer: () => void;
+  onCancelTimer: () => void;
+  timerRunning: boolean;
+  timerSeconds: number;
+  timerDraft: TimerDraft | null;
   refreshKey: number;
 }
 
@@ -30,6 +40,15 @@ function formatDuration(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return m > 0 ? `${h} hr ${m} min` : `${h} hr`;
+}
+
+function formatTimer(s: number): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${pad(h)}:${pad(m)}:${pad(sec)}`;
+  return `${pad(m)}:${pad(sec)}`;
 }
 
 function todayDate(): Date {
@@ -58,7 +77,6 @@ export default function TimeEntriesPage(props: Props) {
   }
 
   createEffect(() => {
-    // re-fetch when date changes or parent signals a refresh via refreshKey
     void props.refreshKey;
     fetchEntries(selectedDate());
   });
@@ -133,6 +151,41 @@ export default function TimeEntriesPage(props: Props) {
 
       {/* Entry list */}
       <div class="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2">
+
+        {/* Live timer card — always visible at top when running */}
+        <Show when={props.timerRunning}>
+          <div class="card bg-primary text-primary-content shadow-md">
+            <div class="card-body p-3 flex flex-col gap-2">
+              <div class="flex items-center gap-2">
+                <span class="badge badge-sm bg-error text-error-content border-0 animate-pulse shrink-0">
+                  ● LIVE
+                </span>
+                <span class="font-mono text-2xl font-bold tabular-nums flex-1">
+                  {formatTimer(props.timerSeconds)}
+                </span>
+                <button
+                  class="btn btn-sm btn-error gap-1 shrink-0"
+                  onClick={props.onStopTimer}
+                >
+                  <i class="ri-stop-fill" /> Stop
+                </button>
+                <button
+                  class="btn btn-sm btn-ghost text-primary-content/70 btn-circle shrink-0"
+                  onClick={props.onCancelTimer}
+                  title="Cancel timer"
+                >
+                  <i class="ri-close-line" />
+                </button>
+              </div>
+              <Show when={props.timerDraft?.task_name}>
+                <p class="text-sm text-primary-content/80 truncate pl-1">
+                  {props.timerDraft!.task_name}
+                </p>
+              </Show>
+            </div>
+          </div>
+        </Show>
+
         <Show when={loading()}>
           <div class="flex justify-center py-12">
             <span class="loading loading-spinner loading-md text-primary" />
@@ -195,9 +248,13 @@ export default function TimeEntriesPage(props: Props) {
           <i class="ri-calendar-today-line text-base" />
           <span class="btm-nav-label text-xs">Today</span>
         </button>
-        <button class="text-base-content/40">
-          <i class="ri-share-line text-base" />
-          <span class="btm-nav-label text-xs">Share</span>
+        <button
+          class={props.timerRunning ? "text-error" : "text-base-content/60"}
+          onClick={props.timerRunning ? () => {} : props.onStartTimer}
+          title={props.timerRunning ? "Timer running" : "Start timer"}
+        >
+          <i class={`ri-timer-line text-base ${props.timerRunning ? "animate-pulse" : ""}`} />
+          <span class="btm-nav-label text-xs">{props.timerRunning ? "Running" : "Timer"}</span>
         </button>
       </div>
     </div>

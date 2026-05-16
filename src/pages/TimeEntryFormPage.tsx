@@ -10,12 +10,22 @@ import {
   Category,
 } from "../lib/qlock-api";
 
+interface TimerDraft {
+  task_name: string;
+  project_id: string | null;
+  category_id: string | null;
+  overtime: boolean;
+  date: string;
+}
+
 interface Props {
   token: string;
   entry: TimeEntry | null;
   date: string;
+  initialDuration?: number;
   onBack: () => void;
   onSaved: () => void;
+  onStartTimer?: (draft: TimerDraft) => void;
 }
 
 export default function TimeEntryFormPage(props: Props) {
@@ -37,7 +47,7 @@ export default function TimeEntryFormPage(props: Props) {
   // Populate form fields when entry changes
   createEffect(() => {
     setTaskName(props.entry?.task_name ?? "");
-    setDurationMinutes(props.entry?.duration_minutes ?? 30);
+    setDurationMinutes(props.entry?.duration_minutes ?? props.initialDuration ?? 30);
     setDate(props.entry?.date ?? props.date);
     setOvertime(props.entry?.overtime ?? false);
     setProjectId(props.entry?.project_id ?? "");
@@ -107,6 +117,20 @@ export default function TimeEntryFormPage(props: Props) {
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleStartTimer() {
+    if (!taskName().trim()) {
+      setError("Task name is required.");
+      return;
+    }
+    props.onStartTimer!({
+      task_name: taskName().trim(),
+      project_id: projectId() || null,
+      category_id: categoryId() || null,
+      overtime: overtime(),
+      date: date(),
+    });
   }
 
   return (
@@ -230,10 +254,21 @@ export default function TimeEntryFormPage(props: Props) {
           </div>
         </Show>
 
-        {/* Submit */}
+        {/* Actions */}
+        <Show when={!props.entry && props.onStartTimer}>
+          <button
+            type="button"
+            class="btn btn-outline btn-primary w-full"
+            onClick={handleStartTimer}
+            disabled={loading()}
+          >
+            <i class="ri-timer-line" /> Start Timer
+          </button>
+        </Show>
+
         <button
           type="submit"
-          class="btn btn-primary w-full mt-2"
+          class="btn btn-primary w-full"
           disabled={loading()}
         >
           {loading() ? <span class="loading loading-spinner loading-sm" /> : "Save"}
