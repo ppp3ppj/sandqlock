@@ -1,4 +1,6 @@
-import { createSignal } from "solid-js";
+import { createSignal, Show } from "solid-js";
+import { load } from "@tauri-apps/plugin-store";
+import { signIn } from "../lib/qlock-api";
 
 interface Props {
   onLogin: () => void;
@@ -14,6 +16,7 @@ export default function LoginPage(props: Props) {
   const [password, setPassword] = createSignal("");
   const [loading, setLoading] = createSignal(false);
   const [errors, setErrors] = createSignal<Errors>({});
+  const [apiError, setApiError] = createSignal<string | undefined>();
 
   function validate(): boolean {
     const e: Errors = {};
@@ -28,10 +31,17 @@ export default function LoginPage(props: Props) {
     e.preventDefault();
     if (!validate()) return;
     setLoading(true);
-    // TODO: replace with real auth
-    await new Promise((r) => setTimeout(r, 800));
-    setLoading(false);
-    props.onLogin();
+    setApiError(undefined);
+    try {
+      const token = await signIn(identifier(), password());
+      const store = await load("auth.json");
+      await store.set("token", token);
+      props.onLogin();
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : "Login failed.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -104,6 +114,14 @@ export default function LoginPage(props: Props) {
                 </div>
               )}
             </label>
+
+            {/* API error */}
+            <Show when={apiError()}>
+              <div class="alert alert-error py-2 text-sm">
+                <i class="ri-error-warning-line" />
+                {apiError()}
+              </div>
+            </Show>
 
             {/* Submit */}
             <button
