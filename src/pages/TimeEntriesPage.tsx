@@ -106,6 +106,7 @@ export default function TimeEntriesPage(props: Props) {
   }
 
   const totalMinutes = () => entries().reduce((sum, e) => sum + e.duration_minutes, 0);
+  const isToday = () => toISODate(selectedDate()) === toISODate(todayDate());
 
   return (
     <div class="drawer min-h-screen">
@@ -152,7 +153,11 @@ export default function TimeEntriesPage(props: Props) {
             <i class="ri-arrow-left-s-line text-xl" />
           </button>
           <span class="text-sm font-semibold text-primary">{formatDate(selectedDate())}</span>
-          <button class="btn btn-ghost btn-sm btn-circle" onClick={nextDay}>
+          <button
+            class="btn btn-ghost btn-sm btn-circle"
+            onClick={nextDay}
+            disabled={isToday()}
+          >
             <i class="ri-arrow-right-s-line text-xl" />
           </button>
         </div>
