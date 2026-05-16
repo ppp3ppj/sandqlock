@@ -16,6 +16,7 @@ interface Props {
   timerRunning: boolean;
   timerSeconds: number;
   timerDraft: TimerDraft | null;
+  secsCache: Record<string, number>;
   refreshKey: number;
 }
 
@@ -162,6 +163,7 @@ export default function TimeEntriesPage(props: Props) {
                 </span>
                 <span class="font-mono text-2xl font-bold tabular-nums flex-1">
                   {formatTimer(props.timerSeconds)}
+                  <span class="text-xs font-normal opacity-50 ml-2">{props.timerSeconds}s</span>
                 </span>
                 <button
                   class="btn btn-sm btn-error gap-1 shrink-0"
@@ -215,7 +217,14 @@ export default function TimeEntriesPage(props: Props) {
               <div class="card-body p-4 flex flex-row items-start gap-3">
                 <div class="flex-1 min-w-0">
                   <p class="font-medium text-sm truncate">{entry.task_name}</p>
-                  <p class="text-xs text-base-content/60 mt-0.5">{formatDuration(entry.duration_minutes)}</p>
+                  <p class="text-xs text-base-content/60 mt-0.5">
+                    {formatDuration(entry.duration_minutes)}
+                    <span class="opacity-40 ml-1">
+                      {props.secsCache[entry.id] !== undefined
+                        ? `(${props.secsCache[entry.id]}s)`
+                        : `(${entry.duration_minutes}m)`}
+                    </span>
+                  </p>
                 </div>
                 <div class="flex items-center gap-1 shrink-0">
                   <Show when={entry.overtime}>

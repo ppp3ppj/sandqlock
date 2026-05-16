@@ -38,6 +38,7 @@ function App() {
   const [timerRunning, setTimerRunning] = createSignal(false);
   const [timerDraft, setTimerDraft] = createSignal<TimerDraft | null>(null);
   const intervalRef = { id: 0 };
+  const [secsCache, setSecsCache] = createSignal<Record<string, number>>({});
 
   onMount(async () => {
     initTheme();
@@ -80,14 +81,15 @@ function App() {
 
   // Stop timer — auto-save if draft exists, otherwise open form
   async function handleTimerStop() {
+    const rawSeconds = timerSeconds(); // capture before clearing
     clearInterval(intervalRef.id);
     setTimerRunning(false);
     const draft = timerDraft();
-    const elapsed = Math.max(1, Math.ceil(timerSeconds() / 60));
+    const elapsed = Math.max(1, Math.ceil(rawSeconds / 60));
 
     if (draft) {
       try {
-        await createTimeEntry(token(), {
+        const saved = await createTimeEntry(token(), {
           task_name: draft.task_name,
           duration_minutes: elapsed,
           date: draft.date,
@@ -95,6 +97,7 @@ function App() {
           project_id: draft.project_id,
           category_id: draft.category_id,
         });
+        setSecsCache((prev) => ({ ...prev, [saved.id]: rawSeconds }));
         setTimerDraft(null);
         setRefreshKey((k) => k + 1);
       } catch {
@@ -175,6 +178,7 @@ function App() {
             timerRunning={timerRunning()}
             timerSeconds={timerSeconds()}
             timerDraft={timerDraft()}
+            secsCache={secsCache()}
             refreshKey={refreshKey()}
           />
         </Show>
