@@ -1,4 +1,3 @@
-use sea_orm::{DatabaseConnection, SqlxSqliteConnector};
 use sqlx::migrate::Migrator;
 use sqlx::SqlitePool;
 use tauri::App;
@@ -27,58 +26,44 @@ pub fn tracing() {
 static MIGRATOR: Migrator = sqlx::migrate!("../migrations");
 
 #[cfg(dev)]
-pub fn get_database_pool(_app: &App) -> DatabaseConnection {
+pub fn get_database_pool(_app: &App) -> SqlitePool {
     trace!("Connecting to developer database");
     tauri::async_runtime::block_on(async {
         let pool = SqlitePool::connect(&format!("sqlite:../{DATABASE_FILE_NAME}?mode=rwc"))
             .await
-            .unwrap();
-
-        MIGRATOR
-            .run(&pool)
-            .await
-            .expect("Failed to run database migrations");
-
-        SqlxSqliteConnector::from_sqlx_sqlite_pool(pool)
+            .expect("Failed to connect to developer database");
+        MIGRATOR.run(&pool).await.expect("Failed to run migrations");
+        pool
     })
 }
 
 #[cfg(not(dev))]
-pub fn get_database_pool(app: &App) -> DatabaseConnection {
+pub fn get_database_pool(app: &App) -> SqlitePool {
     use tauri::Manager;
 
     tauri::async_runtime::block_on(async {
-        // app_data_dir() returns the app-scoped dir e.g.
-        // C:\Users\<user>\AppData\Roaming\com.ppp3ppj.sandqlock
         let app_data_dir = app.path().app_data_dir().unwrap();
-
-        // Tauri path resolver returns UNC path on Windows (\\?\...).
-        // dunce::simplified converts it to a regular path.
-        // See https://github.com/tauri-apps/tauri/issues/5850
         let app_data_dir = dunce::simplified(&app_data_dir).to_path_buf();
         let file_path = app_data_dir.join(DATABASE_FILE_NAME);
-        trace!("App data dir: {app_data_dir:?}, database file path: {file_path:?}");
+        trace!("App data dir: {app_data_dir:?}, database file: {file_path:?}");
 
-        // Directory may not exist on first launch
         std::fs::create_dir_all(&app_data_dir).expect("Failed to create app data directory");
 
         let url = format!("sqlite:{}?mode=rwc", file_path.to_string_lossy());
-        trace!("Connecting to production database at {url}");
-
-        let pool = SqlitePool::connect(&url).await.unwrap();
+        let pool = SqlitePool::connect(&url)
+            .await
+            .expect("Failed to connect to database");
 
         if let Err(error) = MIGRATOR.run(&pool).await {
             warn!("Migration failed, resetting database: {error}");
             std::fs::write(&file_path, "").expect("Failed to clear database file");
-
-            let pool = SqlitePool::connect(&url).await.unwrap();
-            MIGRATOR
-                .run(&pool)
+            let pool = SqlitePool::connect(&url)
                 .await
-                .expect("Failed to run database migrations after reset");
-            return SqlxSqliteConnector::from_sqlx_sqlite_pool(pool);
+                .expect("Failed to reconnect after reset");
+            MIGRATOR.run(&pool).await.expect("Failed to run migrations after reset");
+            return pool;
         }
 
-        SqlxSqliteConnector::from_sqlx_sqlite_pool(pool)
+        pool
     })
 }

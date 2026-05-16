@@ -4,7 +4,7 @@ import LoginPage from "./pages/LoginPage";
 import TimeEntriesPage from "./pages/TimeEntriesPage";
 import TimeEntryFormPage from "./pages/TimeEntryFormPage";
 import { getToken, clearToken } from "./lib/auth-store";
-import { TimeEntry, createTimeEntry } from "./lib/qlock-api";
+import { TimeEntry, createTimeEntry, triggerSync, getSyncStatus } from "./lib/local-api";
 import "./App.css";
 
 type View = "list" | "form";
@@ -33,22 +33,64 @@ function App() {
   const [initialDuration, setInitialDuration] = createSignal<number | undefined>(undefined);
   const [refreshKey, setRefreshKey] = createSignal(0);
 
-  // Global timer state
+  // Timer state
   const [timerSeconds, setTimerSeconds] = createSignal(0);
   const [timerRunning, setTimerRunning] = createSignal(false);
   const [timerDraft, setTimerDraft] = createSignal<TimerDraft | null>(null);
   const intervalRef = { id: 0 };
   const [secsCache, setSecsCache] = createSignal<Record<string, number>>({});
 
+  // Sync state
+  const [syncing, setSyncing] = createSignal(false);
+  const [pendingCount, setPendingCount] = createSignal(0);
+  const [lastSyncAt, setLastSyncAt] = createSignal<string | null>(null);
+  const [syncOnline, setSyncOnline] = createSignal(true);
+  const syncIntervalRef = { id: 0 };
+
+  async function runSync(t: string) {
+    if (syncing()) return;
+    setSyncing(true);
+    try {
+      const result = await triggerSync(t);
+      setSyncOnline(result.online);
+      if (result.pulled > 0 || result.pushed > 0) setRefreshKey((k) => k + 1);
+      const status = await getSyncStatus();
+      setPendingCount(Number(status.pending_count));
+      setLastSyncAt(status.last_sync_at);
+    } catch {
+      // silent — sync failure is non-fatal
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  function startSyncInterval(t: string) {
+    clearInterval(syncIntervalRef.id);
+    syncIntervalRef.id = window.setInterval(() => runSync(t), 60_000);
+  }
+
   onMount(async () => {
     initTheme();
-    const t = await getToken();
-    if (t) { setToken(t); setLoggedIn(true); }
+    try {
+      const t = await Promise.race([
+        getToken(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+      ]);
+      if (t) {
+        setToken(t);
+        setLoggedIn(true);
+        runSync(t);
+        startSyncInterval(t);
+      }
+    } catch {
+      // proceed as logged out
+    }
     setChecking(false);
   });
 
   async function handleLogout() {
     clearInterval(intervalRef.id);
+    clearInterval(syncIntervalRef.id);
     setTimerRunning(false);
     setTimerSeconds(0);
     setTimerDraft(null);
@@ -60,9 +102,12 @@ function App() {
   function handleLogin(t: string) {
     setToken(t);
     setLoggedIn(true);
+    runSync(t);
+    startSyncInterval(t);
   }
 
-  // Start timer from the list (no draft — old plain timer behavior)
+  // ── Timer ────────────────────────────────────────────────────────────────
+
   function handleStartTimer() {
     setTimerDraft(null);
     setTimerSeconds(0);
@@ -70,7 +115,6 @@ function App() {
     intervalRef.id = window.setInterval(() => setTimerSeconds((s) => s + 1), 1000);
   }
 
-  // Start timer from the form (with draft task info)
   function handleStartTimerFromForm(draft: TimerDraft) {
     setTimerDraft(draft);
     setTimerSeconds(0);
@@ -79,9 +123,8 @@ function App() {
     setView("list");
   }
 
-  // Stop timer — auto-save if draft exists, otherwise open form
   async function handleTimerStop() {
-    const rawSeconds = timerSeconds(); // capture before clearing
+    const rawSeconds = timerSeconds();
     clearInterval(intervalRef.id);
     setTimerRunning(false);
     const draft = timerDraft();
@@ -100,8 +143,9 @@ function App() {
         setSecsCache((prev) => ({ ...prev, [saved.id]: rawSeconds }));
         setTimerDraft(null);
         setRefreshKey((k) => k + 1);
+        setPendingCount((n) => n + 1);
+        runSync(token());
       } catch {
-        // Save failed — fall back to form so user doesn't lose the entry
         setInitialDuration(elapsed);
         setEditingEntry(null);
         setFormDate(draft.date);
@@ -109,7 +153,6 @@ function App() {
         setView("form");
       }
     } else {
-      // No draft — open form pre-filled with elapsed duration
       setInitialDuration(elapsed);
       setEditingEntry(null);
       setFormDate(toISODate(new Date()));
@@ -124,7 +167,8 @@ function App() {
     setTimerDraft(null);
   }
 
-  // Form navigation
+  // ── Form navigation ───────────────────────────────────────────────────────
+
   function handleAdd(date: string) {
     setEditingEntry(null);
     setFormDate(date);
@@ -145,6 +189,8 @@ function App() {
 
   function handleSaved() {
     setRefreshKey((k) => k + 1);
+    setPendingCount((n) => n + 1);
+    runSync(token());
   }
 
   return (
@@ -180,6 +226,11 @@ function App() {
             timerDraft={timerDraft()}
             secsCache={secsCache()}
             refreshKey={refreshKey()}
+            syncing={syncing()}
+            syncOnline={syncOnline()}
+            pendingCount={pendingCount()}
+            lastSyncAt={lastSyncAt()}
+            onSync={() => runSync(token())}
           />
         </Show>
       </Show>

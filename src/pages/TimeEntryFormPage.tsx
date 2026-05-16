@@ -8,7 +8,7 @@ import {
   TimeEntryInput,
   Project,
   Category,
-} from "../lib/qlock-api";
+} from "../lib/local-api";
 
 interface TimerDraft {
   task_name: string;

@@ -1,5 +1,5 @@
 import { createSignal, createEffect, For, Show } from "solid-js";
-import { listTimeEntries, deleteTimeEntry, TimeEntry } from "../lib/qlock-api";
+import { listTimeEntries, deleteTimeEntry, TimeEntry } from "../lib/local-api";
 import ThemeSelect from "../ThemeSelect";
 
 interface TimerDraft {
@@ -19,6 +19,11 @@ interface Props {
   timerDraft: TimerDraft | null;
   secsCache: Record<string, number>;
   refreshKey: number;
+  syncing: boolean;
+  syncOnline: boolean;
+  pendingCount: number;
+  lastSyncAt: string | null;
+  onSync: () => void;
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -298,6 +303,9 @@ export default function TimeEntriesPage(props: Props) {
                     </p>
                   </div>
                   <div class="flex items-center gap-1 shrink-0">
+                    <Show when={entry.sync_status !== "synced"}>
+                      <span class="badge badge-sm badge-ghost opacity-60" title="Pending sync">●</span>
+                    </Show>
                     <Show when={entry.overtime}>
                       <span class="badge badge-warning badge-sm">OT</span>
                     </Show>
@@ -431,6 +439,42 @@ export default function TimeEntriesPage(props: Props) {
               </span>
               <ThemeSelect />
             </div>
+          </div>
+
+          {/* Sync section */}
+          <div class="px-4 pb-4 flex flex-col gap-2">
+            <p class="text-xs font-semibold text-base-content/40 uppercase tracking-wider px-2">
+              Sync
+            </p>
+            <div class="flex items-center justify-between px-2 py-1 text-sm">
+              <span class="flex items-center gap-1.5">
+                <Show when={!props.syncOnline}>
+                  <span class="text-warning">●</span>
+                  <span class="text-base-content/60">Offline</span>
+                </Show>
+                <Show when={props.syncOnline && props.pendingCount === 0}>
+                  <span class="text-success">●</span>
+                  <span class="text-base-content/60">Synced</span>
+                </Show>
+                <Show when={props.syncOnline && props.pendingCount > 0}>
+                  <span class="text-warning">●</span>
+                  <span class="text-base-content/60">{props.pendingCount} pending</span>
+                </Show>
+              </span>
+              <button
+                class="btn btn-ghost btn-xs gap-1"
+                onClick={props.onSync}
+                disabled={props.syncing}
+              >
+                <i class={`ri-refresh-line ${props.syncing ? "animate-spin" : ""}`} />
+                {props.syncing ? "Syncing…" : "Sync now"}
+              </button>
+            </div>
+            <Show when={props.lastSyncAt}>
+              <p class="text-xs text-base-content/30 px-2">
+                Last sync: {new Date(props.lastSyncAt!).toLocaleTimeString()}
+              </p>
+            </Show>
           </div>
 
           {/* Logout at bottom */}
