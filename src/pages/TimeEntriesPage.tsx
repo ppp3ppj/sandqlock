@@ -1,10 +1,12 @@
 import { createSignal, createEffect, For, Show } from "solid-js";
 import { listTimeEntries, deleteTimeEntry, TimeEntry } from "../lib/qlock-api";
-import TimeEntryModal from "../components/TimeEntryModal";
 
 interface Props {
   token: string;
   onLogout: () => void;
+  onAdd: (date: string) => void;
+  onEdit: (entry: TimeEntry) => void;
+  refreshKey: number;
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -41,8 +43,6 @@ export default function TimeEntriesPage(props: Props) {
   const [entries, setEntries] = createSignal<TimeEntry[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [fetchError, setFetchError] = createSignal<string | undefined>();
-  const [showModal, setShowModal] = createSignal(false);
-  const [editingEntry, setEditingEntry] = createSignal<TimeEntry | null>(null);
 
   async function fetchEntries(date: Date) {
     setLoading(true);
@@ -58,6 +58,8 @@ export default function TimeEntriesPage(props: Props) {
   }
 
   createEffect(() => {
+    // re-fetch when date changes or parent signals a refresh via refreshKey
+    void props.refreshKey;
     fetchEntries(selectedDate());
   });
 
@@ -73,31 +75,13 @@ export default function TimeEntriesPage(props: Props) {
     setSelectedDate(d);
   }
 
-  function goToday() {
-    setSelectedDate(todayDate());
-  }
-
-  function openAdd() {
-    setEditingEntry(null);
-    setShowModal(true);
-  }
-
-  function openEdit(entry: TimeEntry) {
-    setEditingEntry(entry);
-    setShowModal(true);
-  }
-
   async function handleDelete(id: string) {
     try {
       await deleteTimeEntry(props.token, id);
       setEntries((prev) => prev.filter((e) => e.id !== id));
     } catch {
-      // silent — could show a toast in future
+      // silent
     }
-  }
-
-  function handleSaved() {
-    fetchEntries(selectedDate());
   }
 
   const totalMinutes = () => entries().reduce((sum, e) => sum + e.duration_minutes, 0);
@@ -110,10 +94,18 @@ export default function TimeEntriesPage(props: Props) {
           <span class="font-bold text-lg tracking-tight">SandQlock</span>
         </div>
         <div class="flex-none gap-1">
-          <button class="btn btn-ghost btn-sm btn-circle text-primary-content" onClick={openAdd} title="Add entry">
+          <button
+            class="btn btn-ghost btn-sm btn-circle text-primary-content"
+            onClick={() => props.onAdd(toISODate(selectedDate()))}
+            title="Add entry"
+          >
             <i class="ri-add-line text-xl" />
           </button>
-          <button class="btn btn-ghost btn-sm btn-circle text-primary-content" onClick={props.onLogout} title="Logout">
+          <button
+            class="btn btn-ghost btn-sm btn-circle text-primary-content"
+            onClick={props.onLogout}
+            title="Logout"
+          >
             <i class="ri-logout-box-r-line text-lg" />
           </button>
         </div>
@@ -139,7 +131,7 @@ export default function TimeEntriesPage(props: Props) {
         </div>
       </Show>
 
-      {/* Content */}
+      {/* Entry list */}
       <div class="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2">
         <Show when={loading()}>
           <div class="flex justify-center py-12">
@@ -158,7 +150,7 @@ export default function TimeEntriesPage(props: Props) {
           <div class="flex flex-col items-center justify-center py-16 gap-2 text-base-content/40">
             <i class="ri-time-line text-4xl" />
             <p class="text-sm">No entries for this day</p>
-            <button class="btn btn-primary btn-sm mt-2" onClick={openAdd}>
+            <button class="btn btn-primary btn-sm mt-2" onClick={() => props.onAdd(toISODate(selectedDate()))}>
               <i class="ri-add-line" /> Add entry
             </button>
           </div>
@@ -178,7 +170,7 @@ export default function TimeEntriesPage(props: Props) {
                   </Show>
                   <button
                     class="btn btn-ghost btn-xs btn-circle text-base-content/60"
-                    onClick={() => openEdit(entry)}
+                    onClick={() => props.onEdit(entry)}
                     title="Edit"
                   >
                     <i class="ri-pencil-line" />
@@ -199,7 +191,7 @@ export default function TimeEntriesPage(props: Props) {
 
       {/* Bottom bar */}
       <div class="btm-nav btm-nav-sm bg-base-100 border-t border-base-200">
-        <button class="text-primary" onClick={goToday}>
+        <button class="text-primary" onClick={() => setSelectedDate(todayDate())}>
           <i class="ri-calendar-today-line text-base" />
           <span class="btm-nav-label text-xs">Today</span>
         </button>
@@ -208,15 +200,6 @@ export default function TimeEntriesPage(props: Props) {
           <span class="btm-nav-label text-xs">Share</span>
         </button>
       </div>
-
-      <TimeEntryModal
-        show={showModal()}
-        entry={editingEntry()}
-        date={toISODate(selectedDate())}
-        token={props.token}
-        onClose={() => setShowModal(false)}
-        onSaved={handleSaved}
-      />
     </div>
   );
 }
