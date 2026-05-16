@@ -156,6 +156,173 @@ GET /api/json/time-entries
 
 ---
 
+---
+
+## Performance Problem Zones
+
+### 1. Full list pull on every sync — O(N) every 60 seconds
+
+```
+pull_time_entries()
+  → GET /api/json/time-entries   (returns ALL entries, no pagination)
+  → loop over every server record
+  → SELECT from SQLite for each one
+```
+
+**When it hurts:** User has 5,000+ entries accumulated over years.
+Every 60 seconds: one large HTTP response + 5,000 SQLite reads + upserts.
+
+**Fix (not yet implemented):**
+Add `?filter[updated_after]=ISO_DATETIME` to the server API.
+Only fetch records changed since `last_full_sync_at`.
+Reduces pull from O(all entries) to O(changed entries).
+
+---
+
+### 2. Push queue grows unbounded during long offline periods
+
+```
+User offline for 2 weeks, creates 200 entries.
+Reconnects → push_time_entries() loops 200 POST requests sequentially.
+```
+
+**When it hurts:** Each POST is a separate HTTP round-trip.
+200 entries × ~200ms each = ~40 seconds to drain the queue.
+UI is usable (local reads still work) but sync takes a long time.
+
+**Fix (not yet implemented):**
+Batch create endpoint on the server, or parallel push with a concurrency limit.
+
+---
+
+### 3. SQLite write contention
+
+Every user action writes to SQLite.
+Every sync also writes to SQLite.
+SQLite allows only one writer at a time (WAL mode helps but doesn't eliminate this).
+
+**When it hurts:** User rapidly creates entries while a large sync pull is running.
+Writes queue behind the sync transaction.
+
+**Fix:** Already partially mitigated — SQLite in WAL mode allows concurrent
+reads with one writer. For this app scale (one user, one device), this is
+not a real problem in practice.
+
+---
+
+### 4. Memory spike on large pull response
+
+The full `GET /api/json/time-entries` response is parsed into memory at once
+before any SQLite writes happen.
+
+```rust
+let data: JsonApiList<TimeEntryAttrs> = res.json().await ...
+// entire response deserialized into Vec in RAM
+```
+
+**When it hurts:** 10,000 entries × ~300 bytes each ≈ 3 MB in RAM.
+Acceptable for a desktop app. Would matter on a mobile device.
+
+**Fix (not yet implemented):** Stream the response and process records
+in chunks rather than loading everything at once.
+
+---
+
+## LWW Worst Cases
+
+### Worst case 1: Silent data loss from clock skew
+
+```
+Device clock is wrong by 2 hours (behind).
+
+User edits entry at real time 14:00 → local_updated_at = "12:00" (wrong clock)
+Server has version from 13:00 → server.updated_at = "13:00"
+
+LWW check: "13:00" > "12:00" → server wins
+User's edit at 14:00 is silently discarded. User never knows.
+```
+
+**How likely:** Uncommon but real. Happens with:
+- Manual clock adjustments
+- Timezone changes (travel, DST)
+- Virtual machines with unsynchronized clocks
+
+**No fix in current implementation.** Using a monotonic server-assigned
+version number instead of wall-clock time would eliminate this entirely.
+
+---
+
+### Worst case 2: All offline edits lost after long offline period
+
+```
+User works offline for 3 days, edits 50 entries.
+Meanwhile, admin resets those entries on the server.
+Server updated_at = just now (newer than all local edits).
+
+Sync runs:
+  LWW check: server newer → server wins for all 50 entries.
+  3 days of offline work is gone in one sync.
+```
+
+**How likely:** Rare in single-user single-device scenario.
+More likely if user logs in on a second device and edits the same entries.
+
+---
+
+### Worst case 3: Delete vs edit race
+
+```
+User deletes entry A on server (via Bruno / web).
+User edits entry A locally while offline.
+  → local sync_status = "pending_update"
+
+Sync runs:
+  PUSH: PATCH /api/json/time-entries/A → server returns 404
+  db_commands handles 404 by deleting locally.
+  User's edit is gone.
+```
+
+**How likely:** Only if user accesses data from multiple clients simultaneously.
+For a single-device desktop app, this cannot happen.
+
+**Current behavior:** The 404-on-update path deletes the local row.
+This is the "delete wins" policy — reasonable but the user gets no warning.
+
+---
+
+### Worst case 4: Duplicate entries on push retry
+
+```
+POST /api/json/time-entries → server creates the entry
+Network drops before 201 response arrives
+Client sees timeout → retries → POSTs again
+Server creates a second duplicate entry
+```
+
+**How likely:** Low but possible on flaky connections.
+
+**Current behavior:** No retry deduplication. The same entry could appear
+twice on the server.
+
+**Fix (not yet implemented):** Send a client-generated idempotency key
+(the local UUID) and have the server reject duplicate IDs.
+This requires a small backend change to accept client-provided UUIDs.
+
+---
+
+### Summary table
+
+| Worst case | Likelihood (single user) | Data loss? | Fix |
+|------------|--------------------------|-----------|-----|
+| Clock skew discards edits | Low | Yes — silent | Use server version counter |
+| Long offline + server reset | Very low | Yes — silent | Conflict UI / manual resolve |
+| Delete vs edit race | Very low | Yes — silent | "Delete wins" warning |
+| Push retry duplicates | Low | No (duplicate, not lost) | Idempotency key |
+| Large pull memory spike | Low (< 10k entries) | No | Stream response |
+| Slow push of large queue | Medium (after long offline) | No | Batch push |
+
+---
+
 ## File Locations
 
 | File | Purpose |
