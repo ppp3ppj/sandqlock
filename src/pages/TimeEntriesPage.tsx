@@ -66,6 +66,52 @@ export default function TimeEntriesPage(props: Props) {
   const [fetchError, setFetchError] = createSignal<string | undefined>();
   const [sidebarOpen, setSidebarOpen] = createSignal(false);
 
+  // Calendar picker state
+  const [calendarOpen, setCalendarOpen] = createSignal(false);
+  const [calendarView, setCalendarView] = createSignal(new Date()); // month being shown
+  const [calendarTemp, setCalendarTemp] = createSignal(new Date()); // pending selection
+
+  function openCalendar() {
+    const d = selectedDate();
+    setCalendarView(new Date(d.getFullYear(), d.getMonth(), 1));
+    setCalendarTemp(new Date(d));
+    setCalendarOpen(true);
+  }
+
+  function calendarPrevMonth() {
+    const d = calendarView();
+    setCalendarView(new Date(d.getFullYear(), d.getMonth() - 1, 1));
+  }
+
+  function calendarNextMonth() {
+    const d = calendarView();
+    const next = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+    if (next <= todayDate()) setCalendarView(next);
+  }
+
+  const calendarCanGoNext = () => {
+    const d = calendarView();
+    return new Date(d.getFullYear(), d.getMonth() + 1, 1) <= todayDate();
+  };
+
+  function calendarDays(): (number | null)[] {
+    const d = calendarView();
+    const firstDow = new Date(d.getFullYear(), d.getMonth(), 1).getDay();
+    const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    const cells: (number | null)[] = Array(firstDow).fill(null);
+    for (let i = 1; i <= daysInMonth; i++) cells.push(i);
+    return cells;
+  }
+
+  function calendarDayDate(day: number) {
+    const d = calendarView();
+    return new Date(d.getFullYear(), d.getMonth(), day);
+  }
+
+  const isDayDisabled = (day: number) => calendarDayDate(day) > todayDate();
+  const isDaySelected = (day: number) => toISODate(calendarDayDate(day)) === toISODate(calendarTemp());
+  const isDayToday   = (day: number) => toISODate(calendarDayDate(day)) === toISODate(todayDate());
+
   async function fetchEntries(date: Date) {
     setLoading(true);
     setFetchError(undefined);
@@ -152,7 +198,14 @@ export default function TimeEntriesPage(props: Props) {
           <button class="btn btn-ghost btn-sm btn-circle" onClick={prevDay}>
             <i class="ri-arrow-left-s-line text-xl" />
           </button>
-          <span class="text-sm font-semibold text-primary">{formatDate(selectedDate())}</span>
+          <button
+            class="text-sm font-semibold text-primary flex items-center gap-1 hover:underline underline-offset-2"
+            onClick={openCalendar}
+            title="Jump to date"
+          >
+            {formatDate(selectedDate())}
+            <i class="ri-calendar-line text-xs opacity-50" />
+          </button>
           <button
             class="btn btn-ghost btn-sm btn-circle"
             onClick={nextDay}
@@ -284,6 +337,75 @@ export default function TimeEntriesPage(props: Props) {
             <span class="btm-nav-label text-xs">{props.timerRunning ? "Running" : "Timer"}</span>
           </button>
         </div>
+        {/* Calendar modal */}
+        <Show when={calendarOpen()}>
+          <div class="modal modal-open modal-middle">
+            <div class="modal-box p-0 max-w-sm overflow-hidden">
+
+              {/* Month header */}
+              <div class="flex items-center justify-between px-4 py-3 bg-primary text-primary-content">
+                <button class="btn btn-ghost btn-sm btn-circle text-primary-content" onClick={calendarPrevMonth}>
+                  <i class="ri-arrow-left-s-line text-lg" />
+                </button>
+                <span class="font-semibold text-sm">
+                  {calendarView().toLocaleString("default", { month: "long", year: "numeric" })}
+                </span>
+                <button
+                  class="btn btn-ghost btn-sm btn-circle text-primary-content"
+                  onClick={calendarNextMonth}
+                  disabled={!calendarCanGoNext()}
+                >
+                  <i class="ri-arrow-right-s-line text-lg" />
+                </button>
+              </div>
+
+              {/* Day-of-week headers */}
+              <div class="grid grid-cols-7 text-center text-xs font-medium text-base-content/50 px-2 pt-3 pb-1">
+                <For each={["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]}>
+                  {(d) => <span>{d}</span>}
+                </For>
+              </div>
+
+              {/* Day grid */}
+              <div class="grid grid-cols-7 gap-y-1 px-2 pb-3">
+                <For each={calendarDays()}>
+                  {(day) => (
+                    <div class="flex items-center justify-center">
+                      <Show when={day !== null} fallback={<span />}>
+                        <button
+                          class={`w-8 h-8 rounded-full text-sm transition-colors
+                            ${isDaySelected(day!) ? "bg-primary text-primary-content font-bold" : ""}
+                            ${isDayToday(day!) && !isDaySelected(day!) ? "border border-primary text-primary font-semibold" : ""}
+                            ${isDayDisabled(day!) ? "opacity-25 cursor-not-allowed" : "hover:bg-base-200"}
+                          `}
+                          disabled={isDayDisabled(day!)}
+                          onClick={() => setCalendarTemp(calendarDayDate(day!))}
+                        >
+                          {day}
+                        </button>
+                      </Show>
+                    </div>
+                  )}
+                </For>
+              </div>
+
+              {/* Actions */}
+              <div class="modal-action px-4 pb-4 pt-2 border-t border-base-200 m-0">
+                <button class="btn btn-ghost btn-sm" onClick={() => setCalendarOpen(false)}>
+                  Cancel
+                </button>
+                <button
+                  class="btn btn-primary btn-sm"
+                  onClick={() => { setSelectedDate(new Date(calendarTemp())); setCalendarOpen(false); }}
+                >
+                  OK
+                </button>
+              </div>
+
+            </div>
+          </div>
+        </Show>
+
       </div>
 
       {/* Sidebar */}
