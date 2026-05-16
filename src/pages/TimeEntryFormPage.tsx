@@ -1,5 +1,14 @@
-import { createSignal, createEffect, Show } from "solid-js";
-import { createTimeEntry, updateTimeEntry, TimeEntry, TimeEntryInput } from "../lib/qlock-api";
+import { createSignal, createEffect, For, Show } from "solid-js";
+import {
+  createTimeEntry,
+  updateTimeEntry,
+  listProjects,
+  listCategories,
+  TimeEntry,
+  TimeEntryInput,
+  Project,
+  Category,
+} from "../lib/qlock-api";
 
 interface Props {
   token: string;
@@ -14,15 +23,54 @@ export default function TimeEntryFormPage(props: Props) {
   const [durationMinutes, setDurationMinutes] = createSignal(30);
   const [date, setDate] = createSignal("");
   const [overtime, setOvertime] = createSignal(false);
+  const [projectId, setProjectId] = createSignal<string>("");
+  const [categoryId, setCategoryId] = createSignal<string>("");
+
+  const [projects, setProjects] = createSignal<Project[]>([]);
+  const [categories, setCategories] = createSignal<Category[]>([]);
+  const [loadingProjects, setLoadingProjects] = createSignal(false);
+  const [loadingCategories, setLoadingCategories] = createSignal(false);
+
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | undefined>();
 
+  // Populate form fields when entry changes
   createEffect(() => {
     setTaskName(props.entry?.task_name ?? "");
     setDurationMinutes(props.entry?.duration_minutes ?? 30);
     setDate(props.entry?.date ?? props.date);
     setOvertime(props.entry?.overtime ?? false);
+    setProjectId(props.entry?.project_id ?? "");
+    setCategoryId(props.entry?.category_id ?? "");
     setError(undefined);
+  });
+
+  // Load projects on mount
+  createEffect(() => {
+    setLoadingProjects(true);
+    listProjects(props.token)
+      .then(setProjects)
+      .catch(() => {})
+      .finally(() => setLoadingProjects(false));
+  });
+
+  // Load categories when project changes
+  createEffect(() => {
+    const pid = projectId();
+    setCategories([]);
+    if (!pid) {
+      setCategoryId("");
+      return;
+    }
+    setLoadingCategories(true);
+    listCategories(props.token, pid)
+      .then((cats) => {
+        setCategories(cats);
+        // Keep current category only if it belongs to the loaded list; otherwise clear
+        setCategoryId((prev) => (cats.some((c) => c.id === prev) ? prev : ""));
+      })
+      .catch(() => {})
+      .finally(() => setLoadingCategories(false));
   });
 
   async function handleSubmit(e: SubmitEvent) {
@@ -44,6 +92,8 @@ export default function TimeEntryFormPage(props: Props) {
         duration_minutes: durationMinutes(),
         date: date(),
         overtime: overtime(),
+        project_id: projectId() || null,
+        category_id: categoryId() || null,
       };
       if (props.entry) {
         await updateTimeEntry(props.token, props.entry.id, attrs);
@@ -118,6 +168,48 @@ export default function TimeEntryFormPage(props: Props) {
             onInput={(e) => setDate(e.currentTarget.value)}
           />
         </label>
+
+        {/* Project */}
+        <label class="form-control w-full">
+          <div class="label pb-1">
+            <span class="label-text text-xs font-medium">Project</span>
+            <Show when={loadingProjects()}>
+              <span class="loading loading-spinner loading-xs text-primary" />
+            </Show>
+          </div>
+          <select
+            class="select select-bordered w-full bg-base-100"
+            onChange={(e) => setProjectId(e.currentTarget.value)}
+            disabled={loadingProjects()}
+          >
+            <option value="" selected={projectId() === ""}>— No project —</option>
+            <For each={projects()}>
+              {(p) => <option value={p.id} selected={projectId() === p.id}>{p.name}</option>}
+            </For>
+          </select>
+        </label>
+
+        {/* Category — only shown when a project is selected */}
+        <Show when={projectId()}>
+          <label class="form-control w-full">
+            <div class="label pb-1">
+              <span class="label-text text-xs font-medium">Category</span>
+              <Show when={loadingCategories()}>
+                <span class="loading loading-spinner loading-xs text-primary" />
+              </Show>
+            </div>
+            <select
+              class="select select-bordered w-full bg-base-100"
+              onChange={(e) => setCategoryId(e.currentTarget.value)}
+              disabled={loadingCategories()}
+            >
+              <option value="" selected={categoryId() === ""}>— No category —</option>
+              <For each={categories()}>
+                {(c) => <option value={c.id} selected={categoryId() === c.id}>{c.name}</option>}
+              </For>
+            </select>
+          </label>
+        </Show>
 
         {/* Overtime */}
         <label class="flex items-center gap-3 cursor-pointer select-none bg-base-100 rounded-lg px-4 py-3">

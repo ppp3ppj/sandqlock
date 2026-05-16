@@ -94,3 +94,39 @@ export async function deleteTimeEntry(token: string, id: string): Promise<void> 
   });
   if (!res.ok) throw new Error("Failed to delete time entry.");
 }
+
+export interface Project {
+  id: string;
+  name: string;
+}
+
+export interface Category {
+  id: string;
+  name: string;
+}
+
+export async function listProjects(token: string): Promise<Project[]> {
+  const res = await fetch(`${BASE_URL}/api/json/projects`, {
+    method: "GET",
+    headers: apiHeaders(token),
+  });
+  if (!res.ok) throw new Error("Failed to fetch projects.");
+  const body = await res.json();
+  return (body.data ?? []).map((item: { id: string; attributes: Omit<Project, "id"> }) => ({
+    id: item.id,
+    ...item.attributes,
+  }));
+}
+
+export async function listCategories(token: string, projectId: string): Promise<Category[]> {
+  const res = await fetch(`${BASE_URL}/api/json/categories?filter[project_id]=${projectId}`, {
+    method: "GET",
+    headers: apiHeaders(token),
+  });
+  if (!res.ok) throw new Error("Failed to fetch categories.");
+  const body = await res.json();
+  return (body.data ?? []).map((item: { id: string; attributes: Omit<Category, "id"> }) => ({
+    id: item.id,
+    ...item.attributes,
+  }));
+}
