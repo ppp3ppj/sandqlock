@@ -1,6 +1,6 @@
 import { createSignal, Show } from "solid-js";
-import { load } from "@tauri-apps/plugin-store";
 import { signIn } from "../lib/qlock-api";
+import { saveToken } from "../lib/auth-store";
 
 interface Props {
   onLogin: () => void;
@@ -17,6 +17,7 @@ export default function LoginPage(props: Props) {
   const [loading, setLoading] = createSignal(false);
   const [errors, setErrors] = createSignal<Errors>({});
   const [apiError, setApiError] = createSignal<string | undefined>();
+  const [rememberMe, setRememberMe] = createSignal(false);
 
   function validate(): boolean {
     const e: Errors = {};
@@ -34,8 +35,7 @@ export default function LoginPage(props: Props) {
     setApiError(undefined);
     try {
       const token = await signIn(identifier(), password());
-      const store = await load("auth.json");
-      await store.set("token", token);
+      if (rememberMe()) await saveToken(token);
       props.onLogin();
     } catch (err) {
       setApiError(err instanceof Error ? err.message : "Login failed.");
@@ -113,6 +113,17 @@ export default function LoginPage(props: Props) {
                   </span>
                 </div>
               )}
+            </label>
+
+            {/* Remember me */}
+            <label class="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                class="checkbox checkbox-sm checkbox-primary"
+                checked={rememberMe()}
+                onChange={(e) => setRememberMe(e.currentTarget.checked)}
+              />
+              <span class="text-sm">Remember me</span>
             </label>
 
             {/* API error */}
