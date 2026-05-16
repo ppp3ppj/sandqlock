@@ -172,10 +172,22 @@ pull_time_entries()
 **When it hurts:** User has 5,000+ entries accumulated over years.
 Every 60 seconds: one large HTTP response + 5,000 SQLite reads + upserts.
 
-**Fix (not yet implemented):**
-Add `?filter[updated_after]=ISO_DATETIME` to the server API.
-Only fetch records changed since `last_full_sync_at`.
-Reduces pull from O(all entries) to O(changed entries).
+**✅ Fixed — two-level sync:**
+
+```
+App start / login → full pull   (O(N), detects server-side deletions)
+Every 60 seconds  → delta pull  (O(changed), usually 0–5 entries)
+```
+
+Delta pull uses `?filter[updated_after]=<last_sync_at>` added to the backend.
+
+Backend change: `time_entry.ex` — made `inserted_at` / `updated_at` public.
+Uses Ash's standard operator filter syntax: `?filter[updated_at][gte]=ISO_DATETIME`.
+No custom action needed — `gte` is built into `Ash.Query.filter_input/3`.
+
+Client change: `sync.rs` — `full_sync(pool, token, startup: bool)`.
+- `startup = true`  → `pull_time_entries_full()`
+- `startup = false` → `pull_time_entries_delta()` with `since = last_sync_at`
 
 ---
 

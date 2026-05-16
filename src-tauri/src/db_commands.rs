@@ -140,9 +140,10 @@ pub async fn list_categories(
 #[tauri::command]
 pub async fn trigger_sync(
     token: String,
+    startup: bool,
     state: State<'_, SqlitePool>,
 ) -> Result<SyncResult, String> {
-    Ok(sync::full_sync(state.inner(), &token).await)
+    Ok(sync::full_sync(state.inner(), &token, startup).await)
 }
 
 #[tauri::command]

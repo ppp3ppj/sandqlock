@@ -47,11 +47,11 @@ function App() {
   const [syncOnline, setSyncOnline] = createSignal(true);
   const syncIntervalRef = { id: 0 };
 
-  async function runSync(t: string) {
+  async function runSync(t: string, startup = false) {
     if (syncing()) return;
     setSyncing(true);
     try {
-      const result = await triggerSync(t);
+      const result = await triggerSync(t, startup);
       setSyncOnline(result.online);
       if (result.pulled > 0 || result.pushed > 0) setRefreshKey((k) => k + 1);
       const status = await getSyncStatus();
@@ -66,7 +66,8 @@ function App() {
 
   function startSyncInterval(t: string) {
     clearInterval(syncIntervalRef.id);
-    syncIntervalRef.id = window.setInterval(() => runSync(t), 60_000);
+    // startup=false → delta pull on periodic ticks (O(changed) not O(all))
+    syncIntervalRef.id = window.setInterval(() => runSync(t, false), 60_000);
   }
 
   onMount(async () => {
@@ -79,7 +80,7 @@ function App() {
       if (t) {
         setToken(t);
         setLoggedIn(true);
-        runSync(t);
+        runSync(t, true); // startup=true → full pull to catch deletions
         startSyncInterval(t);
       }
     } catch {
@@ -102,7 +103,7 @@ function App() {
   function handleLogin(t: string) {
     setToken(t);
     setLoggedIn(true);
-    runSync(t);
+    runSync(t, true); // startup=true → full pull on fresh login
     startSyncInterval(t);
   }
 

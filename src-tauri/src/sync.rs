@@ -127,7 +127,7 @@ pub async fn is_online(token: &str) -> bool {
 
 // ── Full sync entry point ────────────────────────────────────────────────────
 
-pub async fn full_sync(pool: &SqlitePool, token: &str) -> SyncResult {
+pub async fn full_sync(pool: &SqlitePool, token: &str, startup: bool) -> SyncResult {
     if !is_online(token).await {
         return SyncResult { pushed: 0, pulled: 0, errors: vec![], online: false };
     }
@@ -140,7 +140,7 @@ pub async fn full_sync(pool: &SqlitePool, token: &str) -> SyncResult {
         Err(e) => result.errors.push(format!("Push failed: {e}")),
     }
 
-    // 2. Pull reference data
+    // 2. Pull reference data (always full — small datasets)
     if let Err(e) = pull_projects(pool, token).await {
         result.errors.push(format!("Pull projects: {e}"));
     }
@@ -148,8 +148,17 @@ pub async fn full_sync(pool: &SqlitePool, token: &str) -> SyncResult {
         result.errors.push(format!("Pull categories: {e}"));
     }
 
-    // 3. Pull time entries
-    match pull_time_entries(pool, token).await {
+    // 3. Pull time entries:
+    //    startup = true  → full pull (detects server-side deletions)
+    //    startup = false → delta pull (only entries changed since last sync)
+    let pull_result = if startup {
+        pull_time_entries_full(pool, token).await
+    } else {
+        let since = get_last_sync_at(pool).await;
+        pull_time_entries_delta(pool, token, since.as_deref()).await
+    };
+
+    match pull_result {
         Ok(n) => result.pulled = n,
         Err(e) => result.errors.push(format!("Pull entries: {e}")),
     }
@@ -163,6 +172,13 @@ pub async fn full_sync(pool: &SqlitePool, token: &str) -> SyncResult {
     .await;
 
     result
+}
+
+async fn get_last_sync_at(pool: &SqlitePool) -> Option<String> {
+    sqlx::query_scalar("SELECT value FROM sync_meta WHERE key='last_full_sync_at'")
+        .fetch_optional(pool)
+        .await
+        .unwrap_or(None)
 }
 
 // ── PUSH ─────────────────────────────────────────────────────────────────────
@@ -434,7 +450,9 @@ async fn pull_categories(pool: &SqlitePool, token: &str) -> Result<(), String> {
     Ok(())
 }
 
-async fn pull_time_entries(pool: &SqlitePool, token: &str) -> Result<u32, String> {
+// Full pull — fetches ALL entries, detects server-side deletions.
+// Used on startup.
+async fn pull_time_entries_full(pool: &SqlitePool, token: &str) -> Result<u32, String> {
     let client = build_client()?;
     let res = client
         .get(format!("{BASE_URL}/api/json/time-entries"))
@@ -559,6 +577,107 @@ async fn pull_time_entries(pool: &SqlitePool, token: &str) -> Result<u32, String
                 .execute(pool)
                 .await
                 .map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(pulled)
+}
+
+// Delta pull — fetches only entries updated since `since`.
+// Fast: O(changed) instead of O(all). No deletion detection.
+// Used on the 60-second periodic tick.
+async fn pull_time_entries_delta(
+    pool: &SqlitePool,
+    token: &str,
+    since: Option<&str>,
+) -> Result<u32, String> {
+    // If we have no prior sync timestamp, fall back to full pull
+    let since = match since {
+        Some(s) => s,
+        None => return pull_time_entries_full(pool, token).await,
+    };
+
+    let client = build_client()?;
+    // filter[updated_at][gte] is Ash's standard operator filter syntax
+    let url = format!(
+        "{BASE_URL}/api/json/time-entries?filter[updated_at][gte]={since}"
+    );
+    let res = client
+        .get(&url)
+        .header("Accept", "application/vnd.api+json")
+        .header("Authorization", format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !res.status().is_success() {
+        return Err(format!("server {} on delta pull", res.status()));
+    }
+
+    let data: JsonApiList<TimeEntryAttrs> = res.json().await.map_err(|e| e.to_string())?;
+    let mut pulled = 0u32;
+
+    for item in &data.data {
+        let a = &item.attributes;
+        let updated_at = a.updated_at.as_deref().unwrap_or("");
+        let inserted_at = a.inserted_at.as_deref().unwrap_or("");
+        let overtime = a.overtime.unwrap_or(false);
+
+        let existing: Option<TimeEntryRow> =
+            sqlx::query_as("SELECT * FROM time_entries WHERE id=?")
+                .bind(&item.id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| e.to_string())?;
+
+        match existing {
+            None => {
+                sqlx::query(
+                    "INSERT INTO time_entries
+                       (id,task_name,duration_minutes,date,overtime,project_id,category_id,
+                        inserted_at,updated_at,sync_status,local_updated_at)
+                     VALUES (?,?,?,?,?,?,?,?,?,'synced',?)",
+                )
+                .bind(&item.id)
+                .bind(&a.task_name)
+                .bind(a.duration_minutes)
+                .bind(&a.date)
+                .bind(overtime)
+                .bind(&a.project_id)
+                .bind(&a.category_id)
+                .bind(inserted_at)
+                .bind(updated_at)
+                .bind(updated_at)
+                .execute(pool)
+                .await
+                .map_err(|e| e.to_string())?;
+                pulled += 1;
+            }
+            Some(local) if local.sync_status == "synced" => {
+                sqlx::query(
+                    "UPDATE time_entries
+                     SET task_name=?,duration_minutes=?,date=?,overtime=?,
+                         project_id=?,category_id=?,updated_at=?,inserted_at=?,
+                         sync_status='synced',local_updated_at=?
+                     WHERE id=?",
+                )
+                .bind(&a.task_name)
+                .bind(a.duration_minutes)
+                .bind(&a.date)
+                .bind(overtime)
+                .bind(&a.project_id)
+                .bind(&a.category_id)
+                .bind(updated_at)
+                .bind(inserted_at)
+                .bind(updated_at)
+                .bind(&item.id)
+                .execute(pool)
+                .await
+                .map_err(|e| e.to_string())?;
+                pulled += 1;
+            }
+            // pending_* → local has unsaved changes, always keep local (Option A fix)
+            _ => {}
         }
     }
 

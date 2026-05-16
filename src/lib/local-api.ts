@@ -78,8 +78,10 @@ export async function listCategories(_token: string, projectId: string): Promise
   return invoke<Category[]>("list_categories", { project_id: projectId });
 }
 
-export async function triggerSync(token: string): Promise<SyncResult> {
-  return invoke<SyncResult>("trigger_sync", { token });
+// startup=true  → full pull (detects server-side deletions)
+// startup=false → delta pull (only entries changed since last sync, O(changed))
+export async function triggerSync(token: string, startup = false): Promise<SyncResult> {
+  return invoke<SyncResult>("trigger_sync", { token, startup });
 }
 
 export async function getSyncStatus(): Promise<SyncStatus> {
