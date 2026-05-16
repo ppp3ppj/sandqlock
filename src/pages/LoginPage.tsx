@@ -3,7 +3,7 @@ import { signIn } from "../lib/qlock-api";
 import { saveToken } from "../lib/auth-store";
 
 interface Props {
-  onLogin: () => void;
+  onLogin: (token: string) => void;
 }
 
 interface Errors {
@@ -36,7 +36,7 @@ export default function LoginPage(props: Props) {
     try {
       const token = await signIn(identifier(), password());
       if (rememberMe()) await saveToken(token);
-      props.onLogin();
+      props.onLogin(token);
     } catch (err) {
       setApiError(err instanceof Error ? err.message : "Login failed.");
     } finally {
