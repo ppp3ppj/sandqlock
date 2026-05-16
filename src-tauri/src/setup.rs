@@ -48,10 +48,9 @@ pub fn get_database_pool(app: &App) -> DatabaseConnection {
     use tauri::Manager;
 
     tauri::async_runtime::block_on(async {
-        let app_data_dir = app
-            .path()
-            .resolve(".", tauri::path::BaseDirectory::AppData)
-            .unwrap();
+        // app_data_dir() returns the app-scoped dir e.g.
+        // C:\Users\<user>\AppData\Roaming\com.ppp3ppj.sandqlock
+        let app_data_dir = app.path().app_data_dir().unwrap();
 
         // Tauri path resolver returns UNC path on Windows (\\?\...).
         // dunce::simplified converts it to a regular path.
@@ -60,10 +59,10 @@ pub fn get_database_pool(app: &App) -> DatabaseConnection {
         let file_path = app_data_dir.join(DATABASE_FILE_NAME);
         trace!("App data dir: {app_data_dir:?}, database file path: {file_path:?}");
 
-        let url = format!(
-            "sqlite:{}?mode=rwc",
-            app_data_dir.join(DATABASE_FILE_NAME).to_string_lossy()
-        );
+        // Directory may not exist on first launch
+        std::fs::create_dir_all(&app_data_dir).expect("Failed to create app data directory");
+
+        let url = format!("sqlite:{}?mode=rwc", file_path.to_string_lossy());
         trace!("Connecting to production database at {url}");
 
         let pool = SqlitePool::connect(&url).await.unwrap();
