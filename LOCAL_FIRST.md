@@ -332,16 +332,78 @@ This requires a small backend change to accept client-provided UUIDs.
 
 ---
 
+### Worst case 5: Multi-machine sequential use — forgot to sync before switching
+
+```
+Machine A goes offline (or app closes before sync completes).
+  → entry X has local edits, sync_status = "pending_update"
+
+User switches to Machine B.
+  → Machine B pulls from server (doesn't know about Machine A's offline edits)
+  → User edits entry X on Machine B → pushes → server updated_at = T2
+
+Machine A reconnects.
+  → Pull: server.updated_at (T2) > local.local_updated_at (T1)
+  → LWW: server wins → Machine A's offline edits are silently discarded
+```
+
+**How likely:** Only affects multi-machine users who switch while one machine is offline or unsynced.
+Single-machine users: impossible.
+Sequential multi-machine users who always sync before switching: impossible.
+
+**Safe sequential flow (no data loss):**
+```
+Machine A: edit → wait for sync ✓ → close
+Machine B: open → sync pulls latest → edit → sync ✓ → close
+Machine A: open → sync pulls latest → sees B's changes ✓
+```
+
+**Current behavior:** Silent data loss. Machine A's offline edits are overwritten with no warning.
+
+**Fix (not yet implemented):** Detect the conflict and show a warning:
+```
+"Entry modified on another device since your last sync.
+ [Keep local version]  [Use server version]"
+```
+
+---
+
+### Worst case 6: Clock skew with multiple machines
+
+```
+Machine A clock: correct (14:00)
+Machine B clock: 2 hours behind (shows 12:00)
+
+Machine B edits entry at real time 14:05 → local_updated_at = "12:05"
+Machine A previously edited same entry → server.updated_at = "14:00"
+
+Machine B syncs:
+  Pull: server "14:00" > local "12:05" → server wins
+  Machine B's edit is silently discarded
+```
+
+**How likely:** Low but real. Each machine has its own clock.
+Causes: wrong timezone on one machine, manual clock adjustment, VM clock drift.
+
+**Fix:** Option A — always keep local version when `sync_status = "pending_update"`.
+No timestamp comparison = no clock dependency.
+This is the right call for single-user multi-machine sequential use since you never
+have two people editing the same entry simultaneously.
+
+---
+
 ### Summary table
 
-| Worst case | Likelihood (single user) | Data loss? | Fix |
-|------------|--------------------------|-----------|-----|
-| Clock skew discards edits | Low | Yes — silent | Use server version counter |
-| Long offline + server reset | Very low | Yes — silent | Conflict UI / manual resolve |
-| Delete vs edit race | Very low | Yes — silent | "Delete wins" warning |
-| Push retry duplicates | Low | No (duplicate, not lost) | Idempotency key |
-| Large pull memory spike | Low (< 10k entries) | No | Stream response |
-| Slow push of large queue | Medium (after long offline) | No | Batch push |
+| Worst case | Single machine | Multi-machine sequential | Data loss? | Fix |
+|------------|---------------|--------------------------|-----------|-----|
+| Clock skew (1 machine) | Low | — | Yes — silent | Option A (always local wins) |
+| Clock skew (2 machines) | Impossible | Low | Yes — silent | Option A |
+| Forgot to sync before switching | Impossible | **Medium** | Yes — silent | Conflict UI warning |
+| Long offline + server reset | Very low | Very low | Yes — silent | Conflict UI / manual resolve |
+| Delete vs edit race | Very low | Very low | Yes — silent | "Delete wins" warning |
+| Push retry duplicates | Low | Low | No (duplicate) | Idempotency key ✅ (UUID) |
+| Large pull memory spike | Low | Low | No | Pagination |
+| Slow push of large queue | Medium | Medium | No | Batch push ✅ fixed |
 
 ---
 
