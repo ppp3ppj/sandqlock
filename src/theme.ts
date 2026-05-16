@@ -1,11 +1,10 @@
 import { createSignal } from "solid-js";
-import { load } from "@tauri-apps/plugin-store";
+import { LazyStore } from "@tauri-apps/plugin-store";
 
 export type Theme = "light" | "dark";
 
-const STORE_FILE = "settings.json";
-const THEME_KEY = "theme";
 const DEFAULT_THEME: Theme = "light";
+const store = new LazyStore("settings.json");
 
 const [theme, setThemeSignal] = createSignal<Theme>(DEFAULT_THEME);
 
@@ -17,13 +16,11 @@ function applyTheme(t: Theme) {
 }
 
 export async function initTheme() {
-  const store = await load(STORE_FILE);
-  const saved = await store.get<Theme>(THEME_KEY);
+  const saved = await store.get<Theme>("theme");
   applyTheme(saved ?? DEFAULT_THEME);
 }
 
 export async function setTheme(t: Theme) {
   applyTheme(t);
-  const store = await load(STORE_FILE);
-  await store.set(THEME_KEY, t);
+  await store.set("theme", t);
 }
