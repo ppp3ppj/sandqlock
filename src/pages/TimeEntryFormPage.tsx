@@ -60,7 +60,7 @@ export default function TimeEntryFormPage(props: Props) {
     setLoadingProjects(true);
     listProjects(props.token)
       .then(setProjects)
-      .catch(() => {})
+      .catch((e) => console.error("[Form] listProjects failed:", e))
       .finally(() => setLoadingProjects(false));
   });
 
@@ -79,7 +79,7 @@ export default function TimeEntryFormPage(props: Props) {
         // Keep current category only if it belongs to the loaded list; otherwise clear
         setCategoryId((prev) => (cats.some((c) => c.id === prev) ? prev : ""));
       })
-      .catch(() => {})
+      .catch((e) => console.error("[Form] listCategories failed:", e))
       .finally(() => setLoadingCategories(false));
   });
 

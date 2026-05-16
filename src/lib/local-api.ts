@@ -75,7 +75,7 @@ export async function listProjects(_token: string): Promise<Project[]> {
 }
 
 export async function listCategories(_token: string, projectId: string): Promise<Category[]> {
-  return invoke<Category[]>("list_categories", { project_id: projectId });
+  return invoke<Category[]>("list_categories", { projectId });
 }
 
 // startup=true  → full pull (detects server-side deletions)
