@@ -1,19 +1,15 @@
-import { load } from "@tauri-apps/plugin-store";
+import { LazyStore } from "@tauri-apps/plugin-store";
 
-const STORE_FILE = "auth.json";
-const TOKEN_KEY = "token";
+const store = new LazyStore("auth.json");
 
 export async function getToken(): Promise<string | null> {
-  const store = await load(STORE_FILE);
-  return (await store.get<string>(TOKEN_KEY)) ?? null;
+  return (await store.get<string>("token")) ?? null;
 }
 
 export async function saveToken(token: string): Promise<void> {
-  const store = await load(STORE_FILE);
-  await store.set(TOKEN_KEY, token);
+  await store.set("token", token);
 }
 
 export async function clearToken(): Promise<void> {
-  const store = await load(STORE_FILE);
-  await store.delete(TOKEN_KEY);
+  await store.delete("token");
 }
