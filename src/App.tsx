@@ -30,7 +30,7 @@ function App() {
   // Form state
   const [editingEntry, setEditingEntry] = createSignal<TimeEntry | null>(null);
   const [formDate, setFormDate] = createSignal("");
-  const [initialDuration, setInitialDuration] = createSignal<number | undefined>(undefined);
+  const [initialDurationSeconds, setInitialDurationSeconds] = createSignal<number | undefined>(undefined);
   const [refreshKey, setRefreshKey] = createSignal(0);
 
   // Timer state
@@ -38,7 +38,6 @@ function App() {
   const [timerRunning, setTimerRunning] = createSignal(false);
   const [timerDraft, setTimerDraft] = createSignal<TimerDraft | null>(null);
   const intervalRef = { id: 0 };
-  const [secsCache, setSecsCache] = createSignal<Record<string, number>>({});
 
   // Sync state
   const [syncing, setSyncing] = createSignal(false);
@@ -66,7 +65,6 @@ function App() {
 
   function startSyncInterval(t: string) {
     clearInterval(syncIntervalRef.id);
-    // startup=false → delta pull on periodic ticks (O(changed) not O(all))
     syncIntervalRef.id = window.setInterval(() => runSync(t, false), 60_000);
   }
 
@@ -80,7 +78,7 @@ function App() {
       if (t) {
         setToken(t);
         setLoggedIn(true);
-        runSync(t, true); // startup=true → full pull to catch deletions
+        runSync(t, true);
         startSyncInterval(t);
       }
     } catch {
@@ -103,7 +101,7 @@ function App() {
   function handleLogin(t: string) {
     setToken(t);
     setLoggedIn(true);
-    runSync(t, true); // startup=true → full pull on fresh login
+    runSync(t, true);
     startSyncInterval(t);
   }
 
@@ -129,32 +127,31 @@ function App() {
     clearInterval(intervalRef.id);
     setTimerRunning(false);
     const draft = timerDraft();
-    const elapsed = Math.max(1, Math.ceil(rawSeconds / 60));
 
     if (draft) {
       try {
-        const saved = await createTimeEntry(token(), {
+        await createTimeEntry(token(), {
           task_name: draft.task_name,
-          duration_minutes: elapsed,
+          duration_seconds: Math.max(1, rawSeconds), // exact seconds, no rounding
           date: draft.date,
           overtime: draft.overtime,
           project_id: draft.project_id,
           category_id: draft.category_id,
         });
-        setSecsCache((prev) => ({ ...prev, [saved.id]: rawSeconds }));
         setTimerDraft(null);
         setRefreshKey((k) => k + 1);
         setPendingCount((n) => n + 1);
         runSync(token());
       } catch {
-        setInitialDuration(elapsed);
+        // fallback to form pre-filled with exact seconds
+        setInitialDurationSeconds(Math.max(1, rawSeconds));
         setEditingEntry(null);
         setFormDate(draft.date);
         setTimerDraft(null);
         setView("form");
       }
     } else {
-      setInitialDuration(elapsed);
+      setInitialDurationSeconds(Math.max(1, rawSeconds));
       setEditingEntry(null);
       setFormDate(toISODate(new Date()));
       setView("form");
@@ -173,14 +170,14 @@ function App() {
   function handleAdd(date: string) {
     setEditingEntry(null);
     setFormDate(date);
-    setInitialDuration(undefined);
+    setInitialDurationSeconds(undefined);
     setView("form");
   }
 
   function handleEdit(entry: TimeEntry) {
     setEditingEntry(entry);
     setFormDate(entry.date);
-    setInitialDuration(undefined);
+    setInitialDurationSeconds(undefined);
     setView("form");
   }
 
@@ -207,7 +204,7 @@ function App() {
               token={token()}
               entry={editingEntry()}
               date={formDate()}
-              initialDuration={initialDuration()}
+              initialDurationSeconds={initialDurationSeconds()}
               onBack={handleFormBack}
               onSaved={handleSaved}
               onStartTimer={handleStartTimerFromForm}
@@ -225,7 +222,6 @@ function App() {
             timerRunning={timerRunning()}
             timerSeconds={timerSeconds()}
             timerDraft={timerDraft()}
-            secsCache={secsCache()}
             refreshKey={refreshKey()}
             syncing={syncing()}
             syncOnline={syncOnline()}

@@ -29,7 +29,7 @@ struct JsonApiItem<T> {
 #[derive(Deserialize)]
 struct TimeEntryAttrs {
     task_name: String,
-    duration_minutes: i32,
+    duration_seconds: i32,
     date: String,
     overtime: Option<bool>,
     project_id: Option<String>,
@@ -83,7 +83,7 @@ struct JsonApiUpdateBody<'a, T: Serialize> {
 #[derive(Serialize)]
 struct TimeEntryAttrsWrite<'a> {
     task_name: &'a str,
-    duration_minutes: i32,
+    duration_seconds: i32,
     date: &'a str,
     overtime: bool,
     project_id: Option<&'a str>,
@@ -230,7 +230,7 @@ async fn push_bulk_create(
     struct EntryPayload<'a> {
         id: &'a str,
         task_name: &'a str,
-        duration_minutes: i32,
+        duration_seconds: i32,
         date: &'a str,
         overtime: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -263,7 +263,7 @@ async fn push_bulk_create(
             .map(|e| EntryPayload {
                 id: &e.id,
                 task_name: &e.task_name,
-                duration_minutes: e.duration_minutes,
+                duration_seconds: e.duration_seconds,
                 date: &e.date,
                 overtime: e.overtime,
                 project_id: e.project_id.as_deref(),
@@ -318,7 +318,7 @@ async fn push_create(
             data_type: "time_entry",
             attributes: TimeEntryAttrsWrite {
                 task_name: &entry.task_name,
-                duration_minutes: entry.duration_minutes,
+                duration_seconds: entry.duration_seconds,
                 date: &entry.date,
                 overtime: entry.overtime,
                 project_id: entry.project_id.as_deref(),
@@ -350,9 +350,9 @@ async fn push_create(
         // Server assigned a different UUID — migrate the local row
         sqlx::query(
             "INSERT INTO time_entries
-               (id, task_name, duration_minutes, date, overtime, project_id, category_id,
+               (id, task_name, duration_seconds, date, overtime, project_id, category_id,
                 inserted_at, updated_at, sync_status, local_updated_at)
-             SELECT ?,task_name,duration_minutes,date,overtime,project_id,category_id,
+             SELECT ?,task_name,duration_seconds,date,overtime,project_id,category_id,
                 ?,?,'synced',local_updated_at
              FROM time_entries WHERE id = ?",
         )
@@ -398,7 +398,7 @@ async fn push_update(
             id: &entry.id,
             attributes: TimeEntryAttrsWrite {
                 task_name: &entry.task_name,
-                duration_minutes: entry.duration_minutes,
+                duration_seconds: entry.duration_seconds,
                 date: &entry.date,
                 overtime: entry.overtime,
                 project_id: entry.project_id.as_deref(),
@@ -586,13 +586,13 @@ async fn pull_time_entries_full(pool: &SqlitePool, token: &str) -> Result<u32, S
                 // New record from server
                 sqlx::query(
                     "INSERT INTO time_entries
-                       (id,task_name,duration_minutes,date,overtime,project_id,category_id,
+                       (id,task_name,duration_seconds,date,overtime,project_id,category_id,
                         inserted_at,updated_at,sync_status,local_updated_at)
                      VALUES (?,?,?,?,?,?,?,?,?,'synced',?)",
                 )
                 .bind(&item.id)
                 .bind(&a.task_name)
-                .bind(a.duration_minutes)
+                .bind(a.duration_seconds)
                 .bind(&a.date)
                 .bind(overtime)
                 .bind(&a.project_id)
@@ -609,13 +609,13 @@ async fn pull_time_entries_full(pool: &SqlitePool, token: &str) -> Result<u32, S
                 // Overwrite with server version
                 sqlx::query(
                     "UPDATE time_entries
-                     SET task_name=?,duration_minutes=?,date=?,overtime=?,
+                     SET task_name=?,duration_seconds=?,date=?,overtime=?,
                          project_id=?,category_id=?,updated_at=?,inserted_at=?,
                          sync_status='synced',local_updated_at=?
                      WHERE id=?",
                 )
                 .bind(&a.task_name)
-                .bind(a.duration_minutes)
+                .bind(a.duration_seconds)
                 .bind(&a.date)
                 .bind(overtime)
                 .bind(&a.project_id)
@@ -634,13 +634,13 @@ async fn pull_time_entries_full(pool: &SqlitePool, token: &str) -> Result<u32, S
                 if updated_at > local.local_updated_at.as_str() {
                     sqlx::query(
                         "UPDATE time_entries
-                         SET task_name=?,duration_minutes=?,date=?,overtime=?,
+                         SET task_name=?,duration_seconds=?,date=?,overtime=?,
                              project_id=?,category_id=?,updated_at=?,inserted_at=?,
                              sync_status='synced',local_updated_at=?
                          WHERE id=?",
                     )
                     .bind(&a.task_name)
-                    .bind(a.duration_minutes)
+                    .bind(a.duration_seconds)
                     .bind(&a.date)
                     .bind(overtime)
                     .bind(&a.project_id)
@@ -732,13 +732,13 @@ async fn pull_time_entries_delta(
             None => {
                 sqlx::query(
                     "INSERT INTO time_entries
-                       (id,task_name,duration_minutes,date,overtime,project_id,category_id,
+                       (id,task_name,duration_seconds,date,overtime,project_id,category_id,
                         inserted_at,updated_at,sync_status,local_updated_at)
                      VALUES (?,?,?,?,?,?,?,?,?,'synced',?)",
                 )
                 .bind(&item.id)
                 .bind(&a.task_name)
-                .bind(a.duration_minutes)
+                .bind(a.duration_seconds)
                 .bind(&a.date)
                 .bind(overtime)
                 .bind(&a.project_id)
@@ -754,13 +754,13 @@ async fn pull_time_entries_delta(
             Some(local) if local.sync_status == "synced" => {
                 sqlx::query(
                     "UPDATE time_entries
-                     SET task_name=?,duration_minutes=?,date=?,overtime=?,
+                     SET task_name=?,duration_seconds=?,date=?,overtime=?,
                          project_id=?,category_id=?,updated_at=?,inserted_at=?,
                          sync_status='synced',local_updated_at=?
                      WHERE id=?",
                 )
                 .bind(&a.task_name)
-                .bind(a.duration_minutes)
+                .bind(a.duration_seconds)
                 .bind(&a.date)
                 .bind(overtime)
                 .bind(&a.project_id)

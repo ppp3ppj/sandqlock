@@ -22,7 +22,7 @@ interface Props {
   token: string;
   entry: TimeEntry | null;
   date: string;
-  initialDuration?: number;
+  initialDurationSeconds?: number;
   onBack: () => void;
   onSaved: () => void;
   onStartTimer?: (draft: TimerDraft) => void;
@@ -47,7 +47,9 @@ export default function TimeEntryFormPage(props: Props) {
   // Populate form fields when entry changes
   createEffect(() => {
     setTaskName(props.entry?.task_name ?? "");
-    setDurationMinutes(props.entry?.duration_minutes ?? props.initialDuration ?? 30);
+    // Convert stored seconds → display minutes (rounded); fallback to initialDurationSeconds or 30 min
+    const storedSeconds = props.entry?.duration_seconds ?? props.initialDurationSeconds;
+    setDurationMinutes(storedSeconds !== undefined ? Math.round(storedSeconds / 60) || 1 : 30);
     setDate(props.entry?.date ?? props.date);
     setOvertime(props.entry?.overtime ?? false);
     setProjectId(props.entry?.project_id ?? "");
@@ -99,7 +101,7 @@ export default function TimeEntryFormPage(props: Props) {
     try {
       const attrs: TimeEntryInput = {
         task_name: taskName().trim(),
-        duration_minutes: durationMinutes(),
+        duration_seconds: durationMinutes() * 60, // user inputs minutes, stored as seconds
         date: date(),
         overtime: overtime(),
         project_id: projectId() || null,

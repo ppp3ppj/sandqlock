@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 pub struct TimeEntryRow {
     pub id: String,
     pub task_name: String,
-    pub duration_minutes: i32,
+    pub duration_seconds: i32,
     pub date: String,
     pub overtime: bool,
     pub project_id: Option<String>,
@@ -38,7 +38,7 @@ pub struct CategoryRow {
 #[derive(Debug, Deserialize)]
 pub struct CreateTimeEntryInput {
     pub task_name: String,
-    pub duration_minutes: i32,
+    pub duration_seconds: i32,
     pub date: String,
     pub overtime: bool,
     pub project_id: Option<String>,
@@ -48,7 +48,7 @@ pub struct CreateTimeEntryInput {
 #[derive(Debug, Deserialize)]
 pub struct UpdateTimeEntryInput {
     pub task_name: String,
-    pub duration_minutes: i32,
+    pub duration_seconds: i32,
     pub date: String,
     pub overtime: bool,
     pub project_id: Option<String>,

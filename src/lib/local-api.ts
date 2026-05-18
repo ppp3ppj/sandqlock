@@ -6,7 +6,7 @@ export { signIn } from "./qlock-api";
 export interface TimeEntry {
   id: string;
   task_name: string;
-  duration_minutes: number;
+  duration_seconds: number;
   date: string;
   overtime: boolean;
   project_id?: string | null;
@@ -29,7 +29,7 @@ export interface Category {
 
 export interface TimeEntryInput {
   task_name: string;
-  duration_minutes: number;
+  duration_seconds: number;
   date: string;
   overtime?: boolean;
   project_id?: string | null;

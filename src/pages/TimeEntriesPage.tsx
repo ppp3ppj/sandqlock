@@ -17,7 +17,6 @@ interface Props {
   timerRunning: boolean;
   timerSeconds: number;
   timerDraft: TimerDraft | null;
-  secsCache: Record<string, number>;
   refreshKey: number;
   syncing: boolean;
   syncOnline: boolean;
@@ -42,11 +41,16 @@ function formatDate(d: Date): string {
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()} [${label}]`;
 }
 
-function formatDuration(minutes: number): string {
-  if (minutes < 60) return `${minutes} min`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return m > 0 ? `${h} hr ${m} min` : `${h} hr`;
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds} sec`;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) {
+    if (s > 0) return `${h} hr ${m} min ${s} sec`;
+    return m > 0 ? `${h} hr ${m} min` : `${h} hr`;
+  }
+  return s > 0 ? `${m} min ${s} sec` : `${m} min`;
 }
 
 function formatTimer(s: number): string {
@@ -156,7 +160,7 @@ export default function TimeEntriesPage(props: Props) {
     }
   }
 
-  const totalMinutes = () => entries().reduce((sum, e) => sum + e.duration_minutes, 0);
+  const totalSeconds = () => entries().reduce((sum, e) => sum + e.duration_seconds, 0);
   const isToday = () => toISODate(selectedDate()) === toISODate(todayDate());
 
   return (
@@ -224,7 +228,7 @@ export default function TimeEntriesPage(props: Props) {
         <Show when={entries().length > 0}>
           <div class="px-4 py-2 bg-base-100 border-b border-base-200 flex justify-end">
             <span class="text-xs text-base-content/60">
-              Total: <span class="font-semibold text-base-content">{formatDuration(totalMinutes())}</span>
+              Total: <span class="font-semibold text-base-content">{formatDuration(totalSeconds())}</span>
             </span>
           </div>
         </Show>
@@ -294,12 +298,7 @@ export default function TimeEntriesPage(props: Props) {
                   <div class="flex-1 min-w-0">
                     <p class="font-medium text-sm truncate">{entry.task_name}</p>
                     <p class="text-xs text-base-content/60 mt-0.5">
-                      {formatDuration(entry.duration_minutes)}
-                      <span class="opacity-40 ml-1">
-                        {props.secsCache[entry.id] !== undefined
-                          ? `(${props.secsCache[entry.id]}s)`
-                          : `(${entry.duration_minutes}m)`}
-                      </span>
+                      {formatDuration(entry.duration_seconds)}
                     </p>
                   </div>
                   <div class="flex items-center gap-1 shrink-0">

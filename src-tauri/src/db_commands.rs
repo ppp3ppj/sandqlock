@@ -33,13 +33,13 @@ pub async fn create_time_entry(
 
     sqlx::query(
         "INSERT INTO time_entries
-           (id, task_name, duration_minutes, date, overtime, project_id, category_id,
+           (id, task_name, duration_seconds, date, overtime, project_id, category_id,
             sync_status, local_updated_at)
          VALUES (?,?,?,?,?,?,?,'pending_create',strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
     )
     .bind(&id)
     .bind(&attrs.task_name)
-    .bind(attrs.duration_minutes)
+    .bind(attrs.duration_seconds)
     .bind(&attrs.date)
     .bind(attrs.overtime)
     .bind(&attrs.project_id)
@@ -64,7 +64,7 @@ pub async fn update_time_entry(
     // Keep pending_create status if the entry has never been synced
     sqlx::query(
         "UPDATE time_entries
-         SET task_name=?, duration_minutes=?, date=?, overtime=?,
+         SET task_name=?, duration_seconds=?, date=?, overtime=?,
              project_id=?, category_id=?,
              sync_status = CASE WHEN sync_status='pending_create'
                                 THEN 'pending_create' ELSE 'pending_update' END,
@@ -72,7 +72,7 @@ pub async fn update_time_entry(
          WHERE id=?",
     )
     .bind(&attrs.task_name)
-    .bind(attrs.duration_minutes)
+    .bind(attrs.duration_seconds)
     .bind(&attrs.date)
     .bind(attrs.overtime)
     .bind(&attrs.project_id)
