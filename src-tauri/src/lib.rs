@@ -3,12 +3,10 @@ extern crate tracing;
 
 use tauri::Manager;
 
+mod db_commands;
+mod models;
 mod setup;
-
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
+mod sync;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -23,7 +21,16 @@ pub fn run() {
             info!("SandQlock started");
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![
+            db_commands::list_time_entries,
+            db_commands::create_time_entry,
+            db_commands::update_time_entry,
+            db_commands::delete_time_entry,
+            db_commands::list_projects,
+            db_commands::list_categories,
+            db_commands::trigger_sync,
+            db_commands::get_sync_status,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
