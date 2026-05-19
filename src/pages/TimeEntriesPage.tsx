@@ -299,6 +299,7 @@ export default function TimeEntriesPage(props: Props) {
                     <p class="font-medium text-sm truncate">{entry.task_name}</p>
                     <p class="text-xs text-base-content/60 mt-0.5">
                       {formatDuration(entry.duration_seconds)}
+                      <span class="opacity-40 ml-1">({entry.duration_seconds}s)</span>
                     </p>
                   </div>
                   <div class="flex items-center gap-1 shrink-0">
