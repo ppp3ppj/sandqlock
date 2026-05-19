@@ -107,13 +107,6 @@ function App() {
 
   // ── Timer ────────────────────────────────────────────────────────────────
 
-  function handleStartTimer() {
-    setTimerDraft(null);
-    setTimerSeconds(0);
-    setTimerRunning(true);
-    intervalRef.id = window.setInterval(() => setTimerSeconds((s) => s + 1), 1000);
-  }
-
   function handleStartTimerFromForm(draft: TimerDraft) {
     setTimerDraft(draft);
     setTimerSeconds(0);
@@ -216,7 +209,6 @@ function App() {
             onLogout={handleLogout}
             onAdd={handleAdd}
             onEdit={handleEdit}
-            onStartTimer={handleStartTimer}
             onStopTimer={handleTimerStop}
             onCancelTimer={handleTimerCancel}
             timerRunning={timerRunning()}

@@ -11,7 +11,6 @@ interface Props {
   onLogout: () => void;
   onAdd: (date: string) => void;
   onEdit: (entry: TimeEntry) => void;
-  onStartTimer: () => void;
   onStopTimer: () => void;
   onCancelTimer: () => void;
   timerRunning: boolean;
@@ -336,14 +335,12 @@ export default function TimeEntriesPage(props: Props) {
             <i class="ri-calendar-today-line text-base" />
             <span class="btm-nav-label text-xs">Today</span>
           </button>
-          <button
-            class={props.timerRunning ? "text-error" : "text-base-content/60"}
-            onClick={props.timerRunning ? () => {} : props.onStartTimer}
-            title={props.timerRunning ? "Timer running" : "Start timer"}
-          >
-            <i class={`ri-timer-line text-base ${props.timerRunning ? "animate-pulse" : ""}`} />
-            <span class="btm-nav-label text-xs">{props.timerRunning ? "Running" : "Timer"}</span>
-          </button>
+          <Show when={props.timerRunning}>
+            <button class="text-error" title="Timer running">
+              <i class="ri-timer-line text-base animate-pulse" />
+              <span class="btm-nav-label text-xs">Running</span>
+            </button>
+          </Show>
         </div>
         {/* Calendar modal */}
         <Show when={calendarOpen()}>
