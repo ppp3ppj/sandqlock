@@ -115,6 +115,22 @@ function App() {
     setView("list");
   }
 
+  // Replay a past entry — start timer from its duration as the offset,
+  // so the timer shows the previous time and keeps accumulating.
+  function handleRepeat(entry: TimeEntry) {
+    if (timerRunning()) clearInterval(intervalRef.id);
+    setTimerDraft({
+      task_name: entry.task_name,
+      project_id: entry.project_id ?? null,
+      category_id: entry.category_id ?? null,
+      overtime: entry.overtime,
+      date: toISODate(new Date()), // always saves to today
+    });
+    setTimerSeconds(0); // fresh start — tracks today's time only
+    setTimerRunning(true);
+    intervalRef.id = window.setInterval(() => setTimerSeconds((s) => s + 1), 1000);
+  }
+
   async function handleTimerStop() {
     const rawSeconds = timerSeconds();
     clearInterval(intervalRef.id);
@@ -209,6 +225,7 @@ function App() {
             onLogout={handleLogout}
             onAdd={handleAdd}
             onEdit={handleEdit}
+            onRepeat={handleRepeat}
             onStopTimer={handleTimerStop}
             onCancelTimer={handleTimerCancel}
             timerRunning={timerRunning()}

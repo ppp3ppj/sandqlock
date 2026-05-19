@@ -11,6 +11,7 @@ interface Props {
   onLogout: () => void;
   onAdd: (date: string) => void;
   onEdit: (entry: TimeEntry) => void;
+  onRepeat: (entry: TimeEntry) => void;
   onStopTimer: () => void;
   onCancelTimer: () => void;
   timerRunning: boolean;
@@ -307,6 +308,15 @@ export default function TimeEntriesPage(props: Props) {
                     </Show>
                     <Show when={entry.overtime}>
                       <span class="badge badge-warning badge-sm">OT</span>
+                    </Show>
+                    <Show when={!props.timerRunning}>
+                      <button
+                        class="btn btn-ghost btn-xs btn-circle text-primary/60"
+                        onClick={() => props.onRepeat(entry)}
+                        title="Repeat today"
+                      >
+                        <i class="ri-repeat-line" />
+                      </button>
                     </Show>
                     <button
                       class="btn btn-ghost btn-xs btn-circle text-base-content/60"
