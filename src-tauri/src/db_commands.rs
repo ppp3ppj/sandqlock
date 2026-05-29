@@ -116,6 +116,28 @@ pub async fn delete_time_entry(
 }
 
 #[tauri::command]
+pub async fn search_time_entries(
+    query: String,
+    state: State<'_, SqlitePool>,
+) -> Result<Vec<TimeEntryRow>, String> {
+    if query.trim().is_empty() {
+        return Ok(vec![]);
+    }
+    let pattern = format!("%{}%", query.to_lowercase());
+    sqlx::query_as(
+        "SELECT * FROM time_entries
+         WHERE LOWER(task_name) LIKE ?
+           AND sync_status != 'pending_delete'
+         ORDER BY date DESC, COALESCE(inserted_at, local_updated_at) ASC
+         LIMIT 100",
+    )
+    .bind(&pattern)
+    .fetch_all(state.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn list_projects(
     state: State<'_, SqlitePool>,
 ) -> Result<Vec<ProjectRow>, String> {

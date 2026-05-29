@@ -6,78 +6,189 @@
   themes: false;
 }
 
-@plugin "daisyui/theme" {
-  name: "dark";
-  default: false;
-  prefersdark: true;
-  color-scheme: "dark";
-  --color-base-100: oklch(30.33% 0.016 252.42);
-  --color-base-200: oklch(25.26% 0.014 253.1);
-  --color-base-300: oklch(20.15% 0.012 254.09);
-  --color-base-content: oklch(97.807% 0.029 256.847);
-  --color-primary: oklch(58% 0.233 277.117);
-  --color-primary-content: oklch(96% 0.018 272.314);
-  --color-secondary: oklch(58% 0.233 277.117);
-  --color-secondary-content: oklch(96% 0.018 272.314);
-  --color-accent: oklch(60% 0.25 292.717);
-  --color-accent-content: oklch(96% 0.016 293.756);
-  --color-neutral: oklch(37% 0.044 257.287);
-  --color-neutral-content: oklch(98% 0.003 247.858);
-  --color-info: oklch(58% 0.158 241.966);
-  --color-info-content: oklch(97% 0.013 236.62);
-  --color-success: oklch(60% 0.118 184.704);
-  --color-success-content: oklch(98% 0.014 180.72);
-  --color-warning: oklch(66% 0.179 58.318);
-  --color-warning-content: oklch(98% 0.022 95.277);
-  --color-error: oklch(58% 0.253 17.585);
-  --color-error-content: oklch(96% 0.015 12.422);
-  --radius-selector: 0.25rem;
-  --radius-field: 0.25rem;
-  --radius-box: 0.5rem;
-  --size-selector: 0.21875rem;
-  --size-field: 0.21875rem;
-  --border: 1.5px;
-  --depth: 1;
-  --noise: 0;
-}
-
+/* ── Light theme (Bauhaus) ────────────────────────────── */
 @plugin "daisyui/theme" {
   name: "light";
   default: true;
   prefersdark: false;
   color-scheme: "light";
-  --color-base-100: oklch(98% 0 0);
-  --color-base-200: oklch(96% 0.001 286.375);
-  --color-base-300: oklch(92% 0.004 286.32);
-  --color-base-content: oklch(21% 0.006 285.885);
-  --color-primary: oklch(70% 0.213 47.604);
-  --color-primary-content: oklch(98% 0.016 73.684);
-  --color-secondary: oklch(55% 0.027 264.364);
-  --color-secondary-content: oklch(98% 0.002 247.839);
-  --color-accent: oklch(0% 0 0);
-  --color-accent-content: oklch(100% 0 0);
-  --color-neutral: oklch(44% 0.017 285.786);
+  --color-base-100: oklch(98.5% 0 0);
+  --color-base-200: oklch(95% 0 0);
+  --color-base-300: oklch(88% 0 0);
+  --color-base-content: oklch(14% 0 0);
+  --color-primary: oklch(50% 0.22 27);     /* Bauhaus Red #E53935  */
+  --color-primary-content: oklch(98% 0 0);
+  --color-secondary: oklch(88% 0.18 95);   /* Bauhaus Yellow #FDD835 */
+  --color-secondary-content: oklch(14% 0 0);
+  --color-accent: oklch(55% 0.2 250);      /* Bauhaus Blue #1E88E5  */
+  --color-accent-content: oklch(98% 0 0);
+  --color-neutral: oklch(14% 0 0);
   --color-neutral-content: oklch(98% 0 0);
-  --color-info: oklch(62% 0.214 259.815);
-  --color-info-content: oklch(97% 0.014 254.604);
-  --color-success: oklch(70% 0.14 182.503);
-  --color-success-content: oklch(98% 0.014 180.72);
-  --color-warning: oklch(66% 0.179 58.318);
-  --color-warning-content: oklch(98% 0.022 95.277);
-  --color-error: oklch(58% 0.253 17.585);
-  --color-error-content: oklch(96% 0.015 12.422);
-  --radius-selector: 0.25rem;
-  --radius-field: 0.25rem;
-  --radius-box: 0.5rem;
-  --size-selector: 0.21875rem;
-  --size-field: 0.21875rem;
-  --border: 1.5px;
-  --depth: 1;
+  --color-info: oklch(55% 0.2 250);
+  --color-info-content: oklch(98% 0 0);
+  --color-success: oklch(55% 0.18 145);
+  --color-success-content: oklch(98% 0 0);
+  --color-warning: oklch(72% 0.18 65);
+  --color-warning-content: oklch(14% 0 0);
+  --color-error: oklch(50% 0.22 27);
+  --color-error-content: oklch(98% 0 0);
+  --radius-selector: 0rem;
+  --radius-field: 0rem;
+  --radius-box: 0rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+/* ── Dark theme (Bauhaus night) ───────────────────────── */
+@plugin "daisyui/theme" {
+  name: "dark";
+  default: false;
+  prefersdark: true;
+  color-scheme: "dark";
+  --color-base-100: oklch(13% 0 0);
+  --color-base-200: oklch(10% 0 0);
+  --color-base-300: oklch(7% 0 0);
+  --color-base-content: oklch(95% 0 0);
+  --color-primary: oklch(55% 0.22 27);
+  --color-primary-content: oklch(98% 0 0);
+  --color-secondary: oklch(88% 0.18 95);
+  --color-secondary-content: oklch(14% 0 0);
+  --color-accent: oklch(58% 0.2 250);
+  --color-accent-content: oklch(98% 0 0);
+  --color-neutral: oklch(20% 0 0);
+  --color-neutral-content: oklch(95% 0 0);
+  --color-info: oklch(58% 0.2 250);
+  --color-info-content: oklch(98% 0 0);
+  --color-success: oklch(58% 0.18 145);
+  --color-success-content: oklch(98% 0 0);
+  --color-warning: oklch(75% 0.18 65);
+  --color-warning-content: oklch(14% 0 0);
+  --color-error: oklch(55% 0.22 27);
+  --color-error-content: oklch(98% 0 0);
+  --radius-selector: 0rem;
+  --radius-field: 0rem;
+  --radius-box: 0rem;
+  --border: 1px;
+  --depth: 0;
   --noise: 0;
 }
 
 @layer base {
   html {
-    font-family: "Sarabun", sans-serif;
+    font-family: "Helvetica Neue", "Arial", "Sarabun", sans-serif;
   }
 }
+
+/* ══════════════════════════════════════════════════════════
+   BAUHAUS UTILITIES
+   Form follows function · Primary colors · Geometric order
+   ══════════════════════════════════════════════════════════ */
+
+/* Flat button — no border, no shadow, opacity on hover */
+.bh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  border: none;
+  border-radius: 0;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  padding: 0.5rem 1.125rem;
+  line-height: 1;
+  transition: opacity 0.15s ease;
+}
+.bh-btn:hover:not(:disabled) { opacity: 0.8; }
+.bh-btn:active:not(:disabled) { opacity: 0.65; }
+.bh-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.bh-btn-lg {
+  padding: 0.75rem 1.5rem;
+  font-size: 12px;
+}
+
+.bh-btn-outline {
+  background: transparent;
+  border: 1px solid currentColor;
+}
+
+/* Underline input — Bauhaus minimal form */
+.bh-input {
+  width: 100%;
+  border: none;
+  border-bottom: 2px solid #212121;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.5rem 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: #212121;
+  transition: border-color 0.2s ease;
+}
+.bh-input:focus {
+  outline: none;
+  border-bottom-color: #1E88E5;
+}
+.bh-input::placeholder {
+  color: #BDBDBD;
+  font-size: 13px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Underline select */
+.bh-select {
+  width: 100%;
+  border: none;
+  border-bottom: 2px solid #212121;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.5rem 2rem 0.5rem 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: #212121;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='16' height='16' viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 6L8 10L12 6' stroke='%23212121' stroke-width='1.5' stroke-linecap='square'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.25rem center;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+.bh-select:focus {
+  outline: none;
+  border-bottom-color: #1E88E5;
+}
+
+/* Uppercase micro label */
+.bh-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: #9E9E9E;
+  margin-bottom: 0.375rem;
+}
+
+/* Dark mode adjustments */
+[data-theme=dark] .bh-input {
+  color: #FAFAFA;
+  border-bottom-color: #FAFAFA;
+}
+[data-theme=dark] .bh-input::placeholder { color: #555; }
+[data-theme=dark] .bh-input:focus { border-bottom-color: #1E88E5; }
+
+[data-theme=dark] .bh-select {
+  color: #FAFAFA;
+  border-bottom-color: #FAFAFA;
+  background-image: url("data:image/svg+xml,%3Csvg width='16' height='16' viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 6L8 10L12 6' stroke='%23FAFAFA' stroke-width='1.5' stroke-linecap='square'/%3E%3C/svg%3E");
+}
+[data-theme=dark] .bh-select:focus { border-bottom-color: #1E88E5; }
+
+[data-theme=dark] .bh-label { color: #555; }
