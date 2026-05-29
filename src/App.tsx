@@ -1,4 +1,6 @@
 import { createSignal, onMount, Show } from "solid-js";
+import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { initTheme } from "./theme";
 import LoginPage from "./pages/LoginPage";
 import TimeEntriesPage from "./pages/TimeEntriesPage";
@@ -19,6 +21,15 @@ export interface TimerDraft {
 
 function toISODate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function formatDurationShort(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  if (m > 0) return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  return `${s}s`;
 }
 
 function App() {
@@ -85,6 +96,33 @@ function App() {
       // proceed as logged out
     }
     setChecking(false);
+
+    // ── Tray menu events ────────────────────────────────────────────────────
+    // These fire when the user clicks tray menu items while the window is hidden.
+
+    listen("tray:stop-timer", () => {
+      if (timerRunning()) handleTimerStop();
+    });
+
+    listen("tray:cancel-timer", () => {
+      if (timerRunning()) handleTimerCancel();
+    });
+
+    // ── Global shortcut: CmdOrControl+Shift+T ───────────────────────────────
+    // Timer running → stop and save.
+    // Timer not running → show window + go to form to start a new entry.
+    listen("shortcut:toggle-timer", () => {
+      if (timerRunning()) {
+        handleTimerStop();
+      } else {
+        // Bring window to front and navigate to form
+        invoke("show_main_window").catch(() => {});
+        setEditingEntry(null);
+        setFormDate(toISODate(new Date()));
+        setInitialDurationSeconds(undefined);
+        setView("form");
+      }
+    });
   });
 
   async function handleLogout() {
@@ -93,6 +131,7 @@ function App() {
     setTimerRunning(false);
     setTimerSeconds(0);
     setTimerDraft(null);
+    invoke("set_tray_idle").catch(() => {});
     await clearToken();
     setToken("");
     setLoggedIn(false);
@@ -105,30 +144,44 @@ function App() {
     startSyncInterval(t);
   }
 
-  // ── Timer ────────────────────────────────────────────────────────────────
+  // ── Timer ──────────────────────────────────────────────────────────────────
+
+  function startTimerInterval() {
+    intervalRef.id = window.setInterval(() => {
+      setTimerSeconds((s) => s + 1);
+      // Push live time to the tray tooltip every second
+      const secs = timerSeconds();
+      const draft = timerDraft();
+      invoke("update_tray_timer", {
+        seconds: secs,
+        task: draft?.task_name ?? "",
+      }).catch(() => {});
+    }, 1000);
+  }
 
   function handleStartTimerFromForm(draft: TimerDraft) {
     setTimerDraft(draft);
     setTimerSeconds(0);
     setTimerRunning(true);
-    intervalRef.id = window.setInterval(() => setTimerSeconds((s) => s + 1), 1000);
+    invoke("update_tray_timer", { seconds: 0, task: draft.task_name }).catch(() => {});
+    startTimerInterval();
     setView("list");
   }
 
-  // Replay a past entry — start timer from its duration as the offset,
-  // so the timer shows the previous time and keeps accumulating.
   function handleRepeat(entry: TimeEntry) {
     if (timerRunning()) clearInterval(intervalRef.id);
-    setTimerDraft({
+    const draft: TimerDraft = {
       task_name: entry.task_name,
       project_id: entry.project_id ?? null,
       category_id: entry.category_id ?? null,
       overtime: entry.overtime,
-      date: toISODate(new Date()), // always saves to today
-    });
-    setTimerSeconds(0); // fresh start — tracks today's time only
+      date: toISODate(new Date()),
+    };
+    setTimerDraft(draft);
+    setTimerSeconds(0);
     setTimerRunning(true);
-    intervalRef.id = window.setInterval(() => setTimerSeconds((s) => s + 1), 1000);
+    invoke("update_tray_timer", { seconds: 0, task: draft.task_name }).catch(() => {});
+    startTimerInterval();
   }
 
   async function handleTimerStop() {
@@ -137,11 +190,14 @@ function App() {
     setTimerRunning(false);
     const draft = timerDraft();
 
+    // Reset tray immediately
+    invoke("set_tray_idle").catch(() => {});
+
     if (draft) {
       try {
         await createTimeEntry(token(), {
           task_name: draft.task_name,
-          duration_seconds: Math.max(1, rawSeconds), // exact seconds, no rounding
+          duration_seconds: Math.max(1, rawSeconds),
           date: draft.date,
           overtime: draft.overtime,
           project_id: draft.project_id,
@@ -151,8 +207,13 @@ function App() {
         setRefreshKey((k) => k + 1);
         setPendingCount((n) => n + 1);
         runSync(token());
+        // ── OS notification: timer saved ─────────────────
+        invoke("show_notification", {
+          title: "SandQlock — Timer Saved",
+          body: `${formatDurationShort(rawSeconds)} logged: ${draft.task_name}`,
+        }).catch(() => {});
       } catch {
-        // fallback to form pre-filled with exact seconds
+        // Fallback to form pre-filled with exact seconds
         setInitialDurationSeconds(Math.max(1, rawSeconds));
         setEditingEntry(null);
         setFormDate(draft.date);
@@ -172,9 +233,10 @@ function App() {
     setTimerRunning(false);
     setTimerSeconds(0);
     setTimerDraft(null);
+    invoke("set_tray_idle").catch(() => {});
   }
 
-  // ── Form navigation ───────────────────────────────────────────────────────
+  // ── Form navigation ────────────────────────────────────────────────────────
 
   function handleAdd(date: string) {
     setEditingEntry(null);
@@ -203,7 +265,11 @@ function App() {
   return (
     <Show
       when={!checking()}
-      fallback={<div class="min-h-screen flex items-center justify-center"><span class="loading loading-spinner loading-lg" /></div>}
+      fallback={
+        <div class="min-h-screen flex items-center justify-center">
+          <span class="loading loading-spinner loading-lg" />
+        </div>
+      }
     >
       <Show when={loggedIn()} fallback={<LoginPage onLogin={handleLogin} />}>
         <Show

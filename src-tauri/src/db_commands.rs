@@ -1,5 +1,5 @@
 use sqlx::SqlitePool;
-use tauri::State;
+use tauri::{Manager, State};
 use uuid::Uuid;
 
 use crate::models::{
@@ -226,6 +226,73 @@ pub async fn get_weekly_summary(
 
     Ok(WeeklySummary { week_start, week_end, total_seconds, rows, daily })
 }
+
+// ── Tray commands ────────────────────────────────────────────────────────────
+
+/// Called every second while the timer is running.
+/// Updates the tray tooltip with the live elapsed time + task name.
+#[tauri::command]
+pub async fn update_tray_timer(
+    app: tauri::AppHandle,
+    seconds: u32,
+    task: String,
+) -> Result<(), String> {
+    if let Some(tray) = app.tray_by_id("main") {
+        let h = seconds / 3600;
+        let m = (seconds % 3600) / 60;
+        let s = seconds % 60;
+        let time_str = if h > 0 {
+            format!("{:02}:{:02}:{:02}", h, m, s)
+        } else {
+            format!("{:02}:{:02}", m, s)
+        };
+        let tip = if task.is_empty() {
+            format!("⏱ {}", time_str)
+        } else {
+            format!("⏱ {}  {}", time_str, task)
+        };
+        tray.set_tooltip(Some(&tip)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Called when the timer stops or is cancelled — resets tray tooltip.
+#[tauri::command]
+pub async fn set_tray_idle(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(tray) = app.tray_by_id("main") {
+        tray.set_tooltip(Some("SandQlock")).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Sends a native OS notification.
+#[tauri::command]
+pub async fn show_notification(
+    app: tauri::AppHandle,
+    title: String,
+    body: String,
+) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+    app.notification()
+        .builder()
+        .title(&title)
+        .body(&body)
+        .show()
+        .map_err(|e| e.to_string())
+}
+
+/// Brings the main window to the front — used by the global shortcut
+/// when no timer is running, so the user can start one immediately.
+#[tauri::command]
+pub async fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+    Ok(())
+}
+
+// ── Sync commands ─────────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn trigger_sync(
