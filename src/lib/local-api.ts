@@ -50,6 +50,10 @@ export interface SyncStatus {
 }
 
 // Token parameter kept for API compatibility with existing callers — ignored locally
+export async function searchTimeEntries(_token: string, query: string): Promise<TimeEntry[]> {
+  return invoke<TimeEntry[]>("search_time_entries", { query });
+}
+
 export async function listTimeEntries(_token: string, date: string): Promise<TimeEntry[]> {
   return invoke<TimeEntry[]>("list_time_entries", { date });
 }
