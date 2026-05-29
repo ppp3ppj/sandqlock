@@ -35,7 +35,11 @@
   "plugins": {
     "deep-link": {
       "mobile": [],
-      "desktop": ["sandqlock"]
+      "desktop": [
+        {
+          "schemes": ["sandqlock"]
+        }
+      ]
     }
   }
 }
