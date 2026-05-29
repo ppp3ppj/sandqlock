@@ -55,6 +55,30 @@ pub struct UpdateTimeEntryInput {
     pub category_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct WeeklySummaryRow {
+    pub project_id: Option<String>,
+    pub project_name: Option<String>,
+    pub category_id: Option<String>,
+    pub category_name: Option<String>,
+    pub total_seconds: i64,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct DailySummaryRow {
+    pub date: String,
+    pub total_seconds: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WeeklySummary {
+    pub week_start: String,
+    pub week_end: String,
+    pub total_seconds: i64,
+    pub rows: Vec<WeeklySummaryRow>,
+    pub daily: Vec<DailySummaryRow>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SyncResult {
     pub pushed: u32,

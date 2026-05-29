@@ -36,6 +36,31 @@ export interface TimeEntryInput {
   category_id?: string | null;
 }
 
+export interface WeeklySummaryRow {
+  project_id: string | null;
+  project_name: string | null;
+  category_id: string | null;
+  category_name: string | null;
+  total_seconds: number;
+}
+
+export interface DailySummaryRow {
+  date: string;         // "YYYY-MM-DD"
+  total_seconds: number;
+}
+
+export interface WeeklySummary {
+  week_start: string;   // "YYYY-MM-DD" Monday
+  week_end: string;     // "YYYY-MM-DD" Sunday
+  total_seconds: number;
+  rows: WeeklySummaryRow[];
+  daily: DailySummaryRow[];
+}
+
+export async function getWeeklySummary(): Promise<WeeklySummary> {
+  return invoke<WeeklySummary>("get_weekly_summary");
+}
+
 export interface SyncResult {
   pushed: number;
   pulled: number;

@@ -24,6 +24,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             db_commands::list_time_entries,
             db_commands::search_time_entries,
+            db_commands::get_weekly_summary,
             db_commands::create_time_entry,
             db_commands::update_time_entry,
             db_commands::delete_time_entry,

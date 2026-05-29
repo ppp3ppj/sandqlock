@@ -3,8 +3,8 @@ use tauri::State;
 use uuid::Uuid;
 
 use crate::models::{
-    CategoryRow, CreateTimeEntryInput, ProjectRow, SyncResult, SyncStatus, TimeEntryRow,
-    UpdateTimeEntryInput,
+    CategoryRow, CreateTimeEntryInput, DailySummaryRow, ProjectRow, SyncResult, SyncStatus,
+    TimeEntryRow, UpdateTimeEntryInput, WeeklySummary, WeeklySummaryRow,
 };
 use crate::sync;
 
@@ -157,6 +157,74 @@ pub async fn list_categories(
         .fetch_all(state.inner())
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_weekly_summary(
+    state: State<'_, SqlitePool>,
+) -> Result<WeeklySummary, String> {
+    // Week start = Monday of the current week (local time)
+    let week_start: String = sqlx::query_scalar(
+        "SELECT date('now', 'localtime',
+           '-' || CAST((strftime('%w', 'now', 'localtime') + 6) % 7 AS TEXT) || ' days')",
+    )
+    .fetch_one(state.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // Week end = Sunday (6 days after Monday)
+    let week_end: String = sqlx::query_scalar(
+        "SELECT date('now', 'localtime',
+           '+' || CAST(6 - (strftime('%w', 'now', 'localtime') + 6) % 7 AS TEXT) || ' days')",
+    )
+    .fetch_one(state.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // Group by project + category, summing duration
+    let rows: Vec<WeeklySummaryRow> = sqlx::query_as(
+        "SELECT
+           te.project_id,
+           p.name  AS project_name,
+           te.category_id,
+           c.name  AS category_name,
+           SUM(te.duration_seconds) AS total_seconds
+         FROM time_entries te
+         LEFT JOIN projects   p ON te.project_id   = p.id
+         LEFT JOIN categories c ON te.category_id  = c.id
+         WHERE te.date >= ?
+           AND te.date <= ?
+           AND te.sync_status != 'pending_delete'
+         GROUP BY te.project_id, te.category_id
+         ORDER BY total_seconds DESC",
+    )
+    .bind(&week_start)
+    .bind(&week_end)
+    .fetch_all(state.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // Per-day totals for the mini bar chart
+    let daily: Vec<DailySummaryRow> = sqlx::query_as(
+        "SELECT
+           date,
+           SUM(duration_seconds) AS total_seconds
+         FROM time_entries
+         WHERE date >= ?
+           AND date <= ?
+           AND sync_status != 'pending_delete'
+         GROUP BY date
+         ORDER BY date ASC",
+    )
+    .bind(&week_start)
+    .bind(&week_end)
+    .fetch_all(state.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let total_seconds: i64 = rows.iter().map(|r| r.total_seconds).sum();
+
+    Ok(WeeklySummary { week_start, week_end, total_seconds, rows, daily })
 }
 
 #[tauri::command]

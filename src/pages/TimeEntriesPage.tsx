@@ -1,5 +1,8 @@
 import { createSignal, createEffect, For, Show } from "solid-js";
-import { listTimeEntries, searchTimeEntries, deleteTimeEntry, TimeEntry } from "../lib/local-api";
+import {
+  listTimeEntries, searchTimeEntries, deleteTimeEntry, getWeeklySummary,
+  TimeEntry, WeeklySummary, WeeklySummaryRow,
+} from "../lib/local-api";
 import { theme, setTheme, type Theme } from "../theme";
 
 interface TimerDraft { task_name: string }
@@ -32,9 +35,11 @@ const WHITE  = "#FAFAFA";
 const GRAY   = "#9E9E9E";
 const LIGHT  = "#F5F5F5";
 const BORDER = "#E0E0E0";
+const PROJECT_COLORS = [RED, BLUE, YELLOW, "#43A047", "#FB8C00", "#8E24AA"];
 
-const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-const DAYS   = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const MONTHS   = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const DAYS     = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const DAY_ABBR = ["M","T","W","T","F","S","S"]; // Mon→Sun
 
 function toISODate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -60,13 +65,52 @@ function formatDuration(s: number): string {
   if (h > 0) return sec > 0 ? `${h}h ${m}m ${sec}s` : m > 0 ? `${h}h ${m}m` : `${h}h`;
   return sec > 0 ? `${m}m ${sec}s` : `${m}m`;
 }
+function formatHours(s: number): string {
+  const h = s / 3600;
+  if (h >= 10) return `${Math.round(h)}h`;
+  if (Number.isInteger(h) || h >= 1) return `${h.toFixed(1).replace(".0","")}h`;
+  return `${Math.round(h * 60)}m`;
+}
 function formatTimer(s: number) {
   const p = (n: number) => String(n).padStart(2,"0");
   const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
   return h > 0 ? `${p(h)}:${p(m)}:${p(sec)}` : `${p(m)}:${p(sec)}`;
 }
+function formatWeekRange(start: string, end: string): string {
+  const [sy, sm, sd] = start.split("-").map(Number);
+  const [_ey, em, ed] = end.split("-").map(Number);
+  const s3 = MONTHS[sm-1].toUpperCase().slice(0,3);
+  const e3 = MONTHS[em-1].toUpperCase().slice(0,3);
+  return sm === em ? `${sd}–${ed} ${s3} ${sy}` : `${sd} ${s3}–${ed} ${e3} ${sy}`;
+}
 function todayDate() {
   const d = new Date(); d.setHours(0,0,0,0); return d;
+}
+
+/* ── Project grouping helper ─────────────────────────── */
+interface ProjectGroup {
+  project_id: string | null;
+  project_name: string | null;
+  total_seconds: number;
+  categories: WeeklySummaryRow[];
+}
+function groupByProject(rows: WeeklySummaryRow[]): ProjectGroup[] {
+  const map = new Map<string | null, ProjectGroup>();
+  for (const row of rows) {
+    const key = row.project_id ?? null;
+    if (!map.has(key)) {
+      map.set(key, { project_id: key, project_name: row.project_name, total_seconds: 0, categories: [] });
+    }
+    const g = map.get(key)!;
+    g.total_seconds += row.total_seconds;
+    g.categories.push(row);
+  }
+  // Sort projects by total descending, "No Project" last
+  return Array.from(map.values()).sort((a, b) => {
+    if (a.project_id === null) return 1;
+    if (b.project_id === null) return -1;
+    return b.total_seconds - a.total_seconds;
+  });
 }
 
 export default function TimeEntriesPage(props: Props) {
@@ -76,6 +120,7 @@ export default function TimeEntriesPage(props: Props) {
   const [fetchError, setFetchError] = createSignal<string | undefined>();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
+  /* Search */
   const [searchMode, setSearchMode] = createSignal(false);
   const [searchQuery, setSearchQuery] = createSignal("");
   const [searchResults, setSearchResults] = createSignal<TimeEntry[]>([]);
@@ -83,6 +128,26 @@ export default function TimeEntriesPage(props: Props) {
   let searchDebounce = 0;
   let searchInputRef: HTMLInputElement | undefined;
 
+  /* Weekly summary */
+  const [weeklyMode, setWeeklyMode] = createSignal(false);
+  const [weekly, setWeekly] = createSignal<WeeklySummary | null>(null);
+  const [weeklyLoading, setWeeklyLoading] = createSignal(false);
+
+  async function loadWeekly() {
+    setWeeklyLoading(true);
+    try { setWeekly(await getWeeklySummary()); }
+    catch { /* silent */ }
+    finally { setWeeklyLoading(false); }
+  }
+
+  function openWeekly() {
+    setSearchMode(false); setSearchQuery(""); setSearchResults([]);
+    setWeeklyMode(true);
+    loadWeekly();
+  }
+  function closeWeekly() { setWeeklyMode(false); }
+
+  /* Calendar */
   const [calendarOpen, setCalendarOpen] = createSignal(false);
   const [calendarView, setCalendarView] = createSignal(new Date());
   const [calendarTemp, setCalendarTemp] = createSignal(new Date());
@@ -113,8 +178,11 @@ export default function TimeEntriesPage(props: Props) {
     finally { setLoading(false); }
   }
   createEffect(() => { void props.refreshKey; fetchEntries(selectedDate()); });
+  // Reload weekly summary when data changes
+  createEffect(() => { void props.refreshKey; if (weeklyMode()) loadWeekly(); });
 
   function openSearch() {
+    setWeeklyMode(false);
     setSearchMode(true); setSearchQuery(""); setSearchResults([]);
     setTimeout(() => searchInputRef?.focus(), 0);
   }
@@ -151,40 +219,42 @@ export default function TimeEntriesPage(props: Props) {
   const isToday = () => toISODate(selectedDate()) === toISODate(todayDate());
   const syncDot = () => !props.syncOnline || props.pendingCount > 0 ? YELLOW : "#43A047";
   const syncTip = () => props.syncing ? "Syncing…" : !props.syncOnline ? "Offline" : props.pendingCount > 0 ? `${props.pendingCount} pending` : "Synced";
+  const activeView = () => weeklyMode() ? "weekly" : searchMode() ? "search" : "list";
+
+  function navBtnStyle(view: string) {
+    const active = activeView() === view;
+    return active
+      ? `background:transparent;border:none;cursor:pointer`
+      : `background:transparent;border:none;cursor:pointer`;
+  }
 
   return (
     <div class="flex h-screen overflow-hidden" style={`background:${WHITE}`}>
 
-      {/* ── SIDEBAR — Bauhaus black column ───────────────── */}
+      {/* ── SIDEBAR ──────────────────────────────────────── */}
       <aside class="flex flex-col w-14 shrink-0" style={`background:${BLACK}`}>
 
-        {/* Logo: red circle */}
-        <div class="h-14 flex items-center justify-center"
-             style={`border-bottom:1px solid #333`}>
-          <div class="w-9 h-9 rounded-full flex items-center justify-center"
-               style={`background:${RED}`}>
+        {/* Logo */}
+        <div class="h-14 flex items-center justify-center" style="border-bottom:1px solid #333">
+          <div class="w-9 h-9 rounded-full flex items-center justify-center" style={`background:${RED}`}>
             <i class="ri-timer-line text-base" style={`color:${WHITE}`} />
           </div>
         </div>
 
-        {/* Navigation */}
+        {/* Nav icons */}
         <div class="flex-1 flex flex-col pt-2">
 
           {/* Time Entries */}
-          <button
-            title="Time Entries"
-            onClick={closeSearch}
-            class="relative h-12 flex items-center justify-center transition-opacity"
+          <button title="Time Entries"
+            onClick={() => { closeSearch(); closeWeekly(); }}
+            class="relative h-12 flex items-center justify-center"
             style="background:transparent;border:none;cursor:pointer"
           >
-            {/* Active: yellow left stripe */}
-            <Show when={!searchMode()}>
-              <div class="absolute left-0 top-2 bottom-2 w-[3px]"
-                   style={`background:${YELLOW}`} />
+            <Show when={activeView() === "list"}>
+              <div class="absolute left-0 top-2 bottom-2 w-[3px]" style={`background:${YELLOW}`} />
             </Show>
             <i class="ri-time-line text-lg"
-               style={`color:${!searchMode() ? WHITE : GRAY};transition:color 0.15s`} />
-            {/* Timer running indicator */}
+               style={`color:${activeView() === "list" ? WHITE : GRAY};transition:color 0.15s`} />
             <Show when={props.timerRunning}>
               <div class="absolute top-2 right-2 w-2 h-2 rounded-full animate-pulse"
                    style={`background:${RED}`} />
@@ -192,27 +262,35 @@ export default function TimeEntriesPage(props: Props) {
           </button>
 
           {/* Search */}
-          <button
-            title="Search all entries"
-            onClick={() => searchMode() ? closeSearch() : openSearch()}
-            class="relative h-12 flex items-center justify-center transition-opacity"
+          <button title="Search all entries"
+            onClick={() => activeView() === "search" ? closeSearch() : openSearch()}
+            class="relative h-12 flex items-center justify-center"
             style="background:transparent;border:none;cursor:pointer"
           >
-            <Show when={searchMode()}>
-              <div class="absolute left-0 top-2 bottom-2 w-[3px]"
-                   style={`background:${BLUE}`} />
+            <Show when={activeView() === "search"}>
+              <div class="absolute left-0 top-2 bottom-2 w-[3px]" style={`background:${BLUE}`} />
             </Show>
             <i class="ri-search-line text-lg"
-               style={`color:${searchMode() ? BLUE : GRAY};transition:color 0.15s`} />
+               style={`color:${activeView() === "search" ? BLUE : GRAY};transition:color 0.15s`} />
+          </button>
+
+          {/* Weekly Summary */}
+          <button title="This week's summary"
+            onClick={() => activeView() === "weekly" ? closeWeekly() : openWeekly()}
+            class="relative h-12 flex items-center justify-center"
+            style="background:transparent;border:none;cursor:pointer"
+          >
+            <Show when={activeView() === "weekly"}>
+              <div class="absolute left-0 top-2 bottom-2 w-[3px]" style={`background:${RED}`} />
+            </Show>
+            <i class="ri-bar-chart-box-line text-lg"
+               style={`color:${activeView() === "weekly" ? RED : GRAY};transition:color 0.15s`} />
           </button>
         </div>
 
         {/* Bottom: sync + settings */}
-        <div class="flex flex-col pb-3" style={`border-top:1px solid #333`}>
-          <button
-            title={syncTip()}
-            onClick={props.onSync}
-            disabled={props.syncing}
+        <div class="flex flex-col pb-3" style="border-top:1px solid #333">
+          <button title={syncTip()} onClick={props.onSync} disabled={props.syncing}
             class="h-11 flex items-center justify-center gap-1.5"
             style="background:transparent;border:none;cursor:pointer;opacity:0.8"
           >
@@ -220,10 +298,7 @@ export default function TimeEntriesPage(props: Props) {
             <i class={`ri-refresh-line text-base ${props.syncing ? "animate-spin" : ""}`}
                style={`color:${GRAY}`} />
           </button>
-
-          <button
-            title="Settings"
-            onClick={() => setSettingsOpen(true)}
+          <button title="Settings" onClick={() => setSettingsOpen(true)}
             class="h-11 flex items-center justify-center"
             style="background:transparent;border:none;cursor:pointer"
           >
@@ -235,63 +310,42 @@ export default function TimeEntriesPage(props: Props) {
       {/* ── MAIN CONTENT ─────────────────────────────────── */}
       <div class="flex-1 flex flex-col overflow-hidden">
 
-        {/* === DATE VIEW === */}
-        <Show when={!searchMode()}>
+        {/* ═══ DATE VIEW ═══ */}
+        <Show when={activeView() === "list"}>
 
-          {/* Date navigation header */}
+          {/* Date header */}
           <div class="flex items-center h-12 shrink-0 px-2"
                style={`border-bottom:2px solid ${BLACK};background:${WHITE}`}>
-            <button
-              class="w-9 h-9 flex items-center justify-center transition-colors"
+            <button class="w-9 h-9 flex items-center justify-center"
               style="background:transparent;border:none;cursor:pointer"
               onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = LIGHT}
               onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
-              onClick={prevDay}
-            >
+              onClick={prevDay}>
               <i class="ri-arrow-left-s-line text-xl" style={`color:${BLACK}`} />
             </button>
-
-            <button
-              class="flex-1 text-center font-bold text-sm uppercase tracking-wide hover:opacity-70 transition-opacity"
+            <button class="flex-1 text-center font-bold text-sm uppercase tracking-wide hover:opacity-70 transition-opacity"
               style={`color:${BLACK};background:transparent;border:none;cursor:pointer;letter-spacing:0.08em`}
-              onClick={openCalendar}
-            >
+              onClick={openCalendar}>
               {formatDate(selectedDate())}
             </button>
-
-            <button
-              class="w-9 h-9 flex items-center justify-center transition-colors"
+            <button class="w-9 h-9 flex items-center justify-center"
               style="background:transparent;border:none;cursor:pointer"
               onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = LIGHT}
               onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
-              onClick={nextDay}
-              disabled={isToday()}
-            >
-              <i class="ri-arrow-right-s-line text-xl"
-                 style={`color:${isToday() ? GRAY : BLACK}`} />
+              onClick={nextDay} disabled={isToday()}>
+              <i class="ri-arrow-right-s-line text-xl" style={`color:${isToday() ? GRAY : BLACK}`} />
             </button>
-
             <div class="flex items-center gap-1 ml-1 shrink-0">
-              {/* Today: yellow circle */}
-              <button
-                class="w-8 h-8 rounded-full flex items-center justify-center transition-opacity"
+              <button class="w-8 h-8 rounded-full flex items-center justify-center transition-opacity"
                 style={`background:${YELLOW};border:none;cursor:pointer`}
-                onClick={() => setSelectedDate(todayDate())}
-                disabled={isToday()}
-                title="Go to today"
-              >
+                onClick={() => setSelectedDate(todayDate())} disabled={isToday()} title="Today">
                 <i class="ri-calendar-today-line text-xs" style={`color:${BLACK}`} />
               </button>
-
-              {/* Add: black square */}
-              <button
-                class="w-8 h-8 flex items-center justify-center transition-opacity"
+              <button class="w-8 h-8 flex items-center justify-center transition-opacity"
                 style={`background:${BLACK};border:none;cursor:pointer`}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.opacity = "0.8"}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.opacity = "1"}
-                onClick={() => props.onAdd(toISODate(selectedDate()))}
-                title="Add entry"
-              >
+                onClick={() => props.onAdd(toISODate(selectedDate()))} title="Add entry">
                 <i class="ri-add-line text-lg" style={`color:${WHITE}`} />
               </button>
             </div>
@@ -310,113 +364,70 @@ export default function TimeEntriesPage(props: Props) {
             </div>
           </Show>
 
-          {/* Scrollable content */}
+          {/* Scrollable entries */}
           <div class="flex-1 overflow-y-auto">
 
-            {/* Timer block: full-width red */}
+            {/* Timer */}
             <Show when={props.timerRunning}>
               <div style={`background:${RED}`}>
                 <div class="px-5 py-4 flex flex-col gap-3">
-                  {/* Recording indicator */}
                   <div class="flex items-center gap-2">
                     <div class="w-2 h-2 rounded-full animate-pulse" style={`background:${WHITE}`} />
                     <span class="text-xs font-bold uppercase tracking-widest"
-                          style={`color:rgba(255,255,255,0.6)`}>
-                      Recording
-                    </span>
+                          style="color:rgba(255,255,255,0.6)">Recording</span>
                   </div>
-
-                  {/* Big timer */}
                   <div class="font-mono font-black text-5xl leading-none" style={`color:${WHITE}`}>
                     {formatTimer(props.timerSeconds)}
                   </div>
-
                   <Show when={props.timerDraft?.task_name}>
                     <p class="text-sm font-semibold uppercase tracking-wide truncate"
-                       style={`color:rgba(255,255,255,0.75)`}>
-                      {props.timerDraft!.task_name}
-                    </p>
+                       style="color:rgba(255,255,255,0.75)">{props.timerDraft!.task_name}</p>
                   </Show>
-
                   <div class="flex gap-2">
-                    <button
-                      class="bh-btn"
-                      style={`background:${WHITE};color:${RED}`}
-                      onClick={props.onStopTimer}
-                    >
-                      Stop
-                    </button>
-                    <button
-                      class="bh-btn bh-btn-outline"
-                      style={`color:${WHITE}`}
-                      onClick={props.onCancelTimer}
-                    >
-                      Cancel
-                    </button>
+                    <button class="bh-btn" style={`background:${WHITE};color:${RED}`}
+                            onClick={props.onStopTimer}>Stop</button>
+                    <button class="bh-btn bh-btn-outline" style={`color:${WHITE}`}
+                            onClick={props.onCancelTimer}>Cancel</button>
                   </div>
                 </div>
               </div>
             </Show>
 
-            {/* Loading */}
             <Show when={loading()}>
               <div class="flex justify-center py-16">
                 <div class="w-8 h-8 rounded-full animate-spin"
                      style={`border:3px solid ${BORDER};border-top-color:${BLUE}`} />
               </div>
             </Show>
-
-            {/* Error */}
             <Show when={fetchError()}>
               <div class="px-5 py-4 text-sm font-bold"
-                   style={`background:${RED};color:${WHITE}`}>
-                {fetchError()}
-              </div>
+                   style={`background:${RED};color:${WHITE}`}>{fetchError()}</div>
             </Show>
-
-            {/* Empty state */}
             <Show when={!loading() && !fetchError() && entries().length === 0}>
-              <div class="flex flex-col items-center justify-center py-20 gap-6">
-                {/* Geometric Bauhaus triangle pointing up */}
-                <div class="flex flex-col items-center gap-4">
-                  <div class="w-16 h-16 rounded-full flex items-center justify-center"
-                       style={`background:${LIGHT};border:1px solid ${BORDER}`}>
-                    <i class="ri-time-line text-3xl" style={`color:${GRAY}`} />
-                  </div>
-                  <p class="text-xs font-bold uppercase tracking-widest" style={`color:${GRAY}`}>
-                    No entries
-                  </p>
+              <div class="flex flex-col items-center justify-center py-20 gap-5">
+                <div class="w-16 h-16 rounded-full flex items-center justify-center"
+                     style={`background:${LIGHT};border:1px solid ${BORDER}`}>
+                  <i class="ri-time-line text-3xl" style={`color:${GRAY}`} />
                 </div>
-                <button
-                  class="bh-btn"
-                  style={`background:${BLACK};color:${WHITE}`}
-                  onClick={() => props.onAdd(toISODate(selectedDate()))}
-                >
-                  + Add Entry
-                </button>
+                <p class="text-xs font-bold uppercase tracking-widest" style={`color:${GRAY}`}>No entries</p>
+                <button class="bh-btn" style={`background:${BLACK};color:${WHITE}`}
+                        onClick={() => props.onAdd(toISODate(selectedDate()))}>+ Add Entry</button>
               </div>
             </Show>
 
-            {/* Entry rows */}
             <For each={entries()}>
               {(entry) => (
-                <div
-                  class="flex items-center group"
+                <div class="flex items-center group"
                   style={`border-bottom:1px solid ${BORDER};border-left:3px solid ${BLUE};background:${WHITE};transition:background 0.12s ease`}
                   onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = LIGHT}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = WHITE}
-                >
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = WHITE}>
                   <div class="flex-1 min-w-0 px-4 py-3">
-                    <p class="font-semibold text-sm truncate" style={`color:${BLACK}`}>
-                      {entry.task_name}
-                    </p>
+                    <p class="font-semibold text-sm truncate" style={`color:${BLACK}`}>{entry.task_name}</p>
                     <p class="font-mono text-xs mt-0.5" style={`color:${GRAY}`}>
                       {formatDuration(entry.duration_seconds)}
                       <span class="ml-1" style={`color:${BORDER}`}>({entry.duration_seconds}s)</span>
                     </p>
                   </div>
-
-                  {/* Right: badges + actions */}
                   <div class="flex items-center gap-2 px-3 shrink-0">
                     <Show when={entry.sync_status !== "synced"}>
                       <div class="w-2 h-2 rounded-full" style={`background:${YELLOW}`} title="Pending sync" />
@@ -424,39 +435,28 @@ export default function TimeEntriesPage(props: Props) {
                     <Show when={entry.overtime}>
                       <span class="text-xs font-bold uppercase tracking-wide" style={`color:${RED}`}>OT</span>
                     </Show>
-
-                    {/* Actions — fade in on hover */}
                     <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                       <Show when={!props.timerRunning}>
-                        <button
-                          class="w-7 h-7 flex items-center justify-center transition-colors"
+                        <button class="w-7 h-7 flex items-center justify-center"
                           style="background:transparent;border:none;cursor:pointer"
                           onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = LIGHT}
                           onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
-                          onClick={() => props.onRepeat(entry)}
-                          title="Repeat today"
-                        >
+                          onClick={() => props.onRepeat(entry)} title="Repeat today">
                           <i class="ri-repeat-line text-sm" style={`color:${GRAY}`} />
                         </button>
                       </Show>
-                      <button
-                        class="w-7 h-7 flex items-center justify-center transition-colors"
+                      <button class="w-7 h-7 flex items-center justify-center"
                         style="background:transparent;border:none;cursor:pointer"
                         onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = LIGHT}
                         onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
-                        onClick={() => props.onEdit(entry)}
-                        title="Edit"
-                      >
+                        onClick={() => props.onEdit(entry)} title="Edit">
                         <i class="ri-pencil-line text-sm" style={`color:${GRAY}`} />
                       </button>
-                      <button
-                        class="w-7 h-7 flex items-center justify-center transition-colors"
+                      <button class="w-7 h-7 flex items-center justify-center"
                         style="background:transparent;border:none;cursor:pointer"
                         onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "#FFEBEE"; }}
                         onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
-                        onClick={() => handleDelete(entry.id)}
-                        title="Delete"
-                      >
+                        onClick={() => handleDelete(entry.id)} title="Delete">
                         <i class="ri-delete-bin-line text-sm" style={`color:${RED}`} />
                       </button>
                     </div>
@@ -464,48 +464,35 @@ export default function TimeEntriesPage(props: Props) {
                 </div>
               )}
             </For>
-
           </div>
         </Show>
 
-        {/* === SEARCH VIEW === */}
-        <Show when={searchMode()}>
-
-          {/* Search input header */}
+        {/* ═══ SEARCH VIEW ═══ */}
+        <Show when={activeView() === "search"}>
           <div class="flex items-center h-12 shrink-0 px-4 gap-3"
                style={`border-bottom:2px solid ${BLUE};background:${WHITE}`}>
             <i class="ri-search-line text-lg shrink-0" style={`color:${BLUE}`} />
-            <input
-              ref={searchInputRef}
-              type="text"
+            <input ref={searchInputRef} type="text"
               placeholder="Search all entries..."
               value={searchQuery()}
               onInput={(e) => handleSearchInput(e.currentTarget.value)}
               onKeyDown={(e) => e.key === "Escape" && closeSearch()}
               class="flex-1 bg-transparent font-bold text-sm uppercase tracking-wide"
-              style={`border:none;outline:none;color:${BLACK};letter-spacing:0.06em`}
-            />
+              style={`border:none;outline:none;color:${BLACK};letter-spacing:0.06em`} />
             <Show when={searching()}>
               <div class="w-4 h-4 rounded-full animate-spin shrink-0"
                    style={`border:2px solid ${BORDER};border-top-color:${BLUE}`} />
             </Show>
             <Show when={searchQuery() !== "" && !searching()}>
-              <button
-                class="w-6 h-6 flex items-center justify-center text-xs font-bold"
+              <button class="w-6 h-6 flex items-center justify-center text-xs font-bold"
                 style={`background:${BLACK};color:${WHITE};border:none;cursor:pointer`}
-                onClick={() => { setSearchQuery(""); setSearchResults([]); searchInputRef?.focus(); }}
-              >
-                ✕
-              </button>
+                onClick={() => { setSearchQuery(""); setSearchResults([]); searchInputRef?.focus(); }}>✕</button>
             </Show>
           </div>
 
-          {/* Search content */}
           <div class="flex-1 overflow-y-auto">
-
             <Show when={searchQuery() === ""}>
               <div class="flex flex-col items-center justify-center py-20 gap-4">
-                {/* Blue circle — Bauhaus geometric */}
                 <div class="w-16 h-16 rounded-full flex items-center justify-center"
                      style={`background:${BLUE}`}>
                   <i class="ri-search-2-line text-2xl" style={`color:${WHITE}`} />
@@ -515,20 +502,15 @@ export default function TimeEntriesPage(props: Props) {
                 </p>
               </div>
             </Show>
-
             <Show when={searchQuery() !== "" && !searching() && searchResults().length === 0}>
               <div class="flex flex-col items-center justify-center py-20 gap-4">
                 <div class="w-16 h-16 rounded-full flex items-center justify-center"
                      style={`background:${LIGHT};border:1px solid ${BORDER}`}>
                   <i class="ri-file-search-line text-2xl" style={`color:${GRAY}`} />
                 </div>
-                <p class="text-xs font-bold uppercase tracking-widest" style={`color:${GRAY}`}>
-                  No results found
-                </p>
+                <p class="text-xs font-bold uppercase tracking-widest" style={`color:${GRAY}`}>No results</p>
               </div>
             </Show>
-
-            {/* Result count */}
             <Show when={searchResults().length > 0}>
               <div class="flex items-center justify-between px-4 h-8"
                    style={`background:${LIGHT};border-bottom:1px solid ${BORDER}`}>
@@ -537,56 +519,38 @@ export default function TimeEntriesPage(props: Props) {
                 </span>
               </div>
             </Show>
-
             <For each={searchResults()}>
               {(entry) => (
-                <div
-                  class="flex items-center group"
+                <div class="flex items-center group"
                   style={`border-bottom:1px solid ${BORDER};border-left:3px solid ${BLUE};background:${WHITE};transition:background 0.12s ease`}
                   onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = LIGHT}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = WHITE}
-                >
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = WHITE}>
                   <div class="flex-1 min-w-0 px-4 py-3">
-                    <p class="font-semibold text-sm truncate" style={`color:${BLACK}`}>
-                      {entry.task_name}
-                    </p>
+                    <p class="font-semibold text-sm truncate" style={`color:${BLACK}`}>{entry.task_name}</p>
                     <div class="flex items-center gap-2 mt-0.5">
-                      <button
-                        class="text-xs font-bold uppercase tracking-wide px-1.5 py-0.5 transition-opacity hover:opacity-70"
+                      <button class="text-xs font-bold uppercase tracking-wide px-1.5 py-0.5 transition-opacity hover:opacity-70"
                         style={`background:${YELLOW};color:${BLACK};border:none;cursor:pointer`}
-                        onClick={() => goToDate(entry.date)}
-                      >
-                        {formatSearchDate(entry.date)}
-                      </button>
-                      <span class="font-mono text-xs" style={`color:${GRAY}`}>
-                        {formatDuration(entry.duration_seconds)}
-                      </span>
+                        onClick={() => goToDate(entry.date)}>{formatSearchDate(entry.date)}</button>
+                      <span class="font-mono text-xs" style={`color:${GRAY}`}>{formatDuration(entry.duration_seconds)}</span>
                     </div>
                   </div>
-
                   <div class="flex items-center gap-2 px-3 shrink-0">
                     <Show when={entry.overtime}>
                       <span class="text-xs font-bold uppercase tracking-wide" style={`color:${RED}`}>OT</span>
                     </Show>
                     <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-                      <button
-                        class="w-7 h-7 flex items-center justify-center"
+                      <button class="w-7 h-7 flex items-center justify-center"
                         style="background:transparent;border:none;cursor:pointer"
                         onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = LIGHT}
                         onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
-                        onClick={() => { goToDate(entry.date); props.onEdit(entry); }}
-                        title="Edit"
-                      >
+                        onClick={() => { goToDate(entry.date); props.onEdit(entry); }} title="Edit">
                         <i class="ri-pencil-line text-sm" style={`color:${GRAY}`} />
                       </button>
-                      <button
-                        class="w-7 h-7 flex items-center justify-center"
+                      <button class="w-7 h-7 flex items-center justify-center"
                         style="background:transparent;border:none;cursor:pointer"
                         onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#FFEBEE"}
                         onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
-                        onClick={() => handleDeleteFromSearch(entry.id)}
-                        title="Delete"
-                      >
+                        onClick={() => handleDeleteFromSearch(entry.id)} title="Delete">
                         <i class="ri-delete-bin-line text-sm" style={`color:${RED}`} />
                       </button>
                     </div>
@@ -596,6 +560,191 @@ export default function TimeEntriesPage(props: Props) {
             </For>
           </div>
         </Show>
+
+        {/* ═══ WEEKLY SUMMARY VIEW ═══ */}
+        <Show when={activeView() === "weekly"}>
+
+          {/* Header */}
+          <div class="h-12 flex items-center justify-between px-5 shrink-0"
+               style={`border-bottom:2px solid ${BLACK};background:${BLACK}`}>
+            <div>
+              <span class="text-xs font-black uppercase tracking-widest" style={`color:${WHITE}`}>
+                This Week
+              </span>
+              <Show when={weekly()}>
+                <span class="text-xs ml-2" style={`color:rgba(255,255,255,0.45)`}>
+                  {formatWeekRange(weekly()!.week_start, weekly()!.week_end)}
+                </span>
+              </Show>
+            </div>
+            <Show when={weekly()}>
+              <span class="font-mono font-black text-sm" style={`color:${YELLOW}`}>
+                {formatHours(weekly()!.total_seconds)} total
+              </span>
+            </Show>
+          </div>
+
+          {/* Loading */}
+          <Show when={weeklyLoading()}>
+            <div class="flex justify-center py-16">
+              <div class="w-8 h-8 rounded-full animate-spin"
+                   style={`border:3px solid ${BORDER};border-top-color:${RED}`} />
+            </div>
+          </Show>
+
+          <Show when={!weeklyLoading() && weekly()}>
+            {(w) => {
+              const data = w();
+              const groups = groupByProject(data.rows);
+              const maxTotal = data.total_seconds || 1;
+
+              /* Build Mon–Sun daily data */
+              const dailyMap = new Map(data.daily.map(d => [d.date, d.total_seconds]));
+              const weekDays = Array.from({length: 7}, (_, i) => {
+                const [sy, sm, sd] = data.week_start.split("-").map(Number);
+                const d = new Date(sy, sm-1, sd + i);
+                const iso = toISODate(d);
+                return { iso, seconds: dailyMap.get(iso) ?? 0, label: DAY_ABBR[i] };
+              });
+              const maxDay = Math.max(...weekDays.map(d => d.seconds), 1);
+
+              return (
+                <div class="flex-1 overflow-y-auto">
+
+                  {/* ── Daily mini bar chart ── */}
+                  <div class="px-5 py-4" style={`border-bottom:1px solid ${BORDER}`}>
+                    <p class="text-xs font-bold uppercase tracking-widest mb-3" style={`color:${GRAY}`}>
+                      Daily
+                    </p>
+                    <div class="flex items-end gap-1" style="height:56px">
+                      {weekDays.map((day) => {
+                        const pct = day.seconds / maxDay;
+                        const barH = Math.round(pct * 40);
+                        const isToday_ = day.iso === toISODate(todayDate());
+                        const hasData = day.seconds > 0;
+                        return (
+                          <div class="flex-1 flex flex-col items-center justify-end gap-1">
+                            <div
+                              class="w-full transition-all duration-300"
+                              style={`height:${Math.max(barH, hasData ? 2 : 0)}px;background:${isToday_ ? RED : hasData ? BLUE : BORDER}`}
+                            />
+                            <span class="text-xs font-bold uppercase" style={`color:${isToday_ ? RED : GRAY};font-size:10px`}>
+                              {day.label}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Day totals on hover — show as small text below */}
+                    <div class="flex gap-1 mt-1">
+                      {weekDays.map((day) => (
+                        <div class="flex-1 text-center">
+                          <span class="font-mono" style={`font-size:9px;color:${day.seconds > 0 ? GRAY : "transparent"}`}>
+                            {day.seconds > 0 ? formatHours(day.seconds) : "·"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* ── Zero state ── */}
+                  <Show when={groups.length === 0}>
+                    <div class="flex flex-col items-center justify-center py-16 gap-4">
+                      <div class="w-16 h-16 rounded-full flex items-center justify-center"
+                           style={`background:${LIGHT};border:1px solid ${BORDER}`}>
+                        <i class="ri-bar-chart-box-line text-2xl" style={`color:${GRAY}`} />
+                      </div>
+                      <p class="text-xs font-bold uppercase tracking-widest" style={`color:${GRAY}`}>
+                        No entries this week
+                      </p>
+                    </div>
+                  </Show>
+
+                  {/* ── Project groups ── */}
+                  <div class="px-5 py-4 flex flex-col gap-5">
+                    <p class="text-xs font-bold uppercase tracking-widest" style={`color:${GRAY}`}>
+                      By Project
+                    </p>
+
+                    {groups.map((group, gi) => {
+                      const color = group.project_id
+                        ? PROJECT_COLORS[gi % PROJECT_COLORS.length]
+                        : GRAY;
+                      const projectPct = (group.total_seconds / maxTotal) * 100;
+                      const textOnColor = color === YELLOW ? BLACK : WHITE;
+
+                      return (
+                        <div>
+                          {/* Project row */}
+                          <div class="flex items-center gap-3 mb-2">
+                            <div class="w-[3px] self-stretch shrink-0" style={`background:${color}`} />
+                            <div class="flex-1 min-w-0">
+                              <div class="flex items-center justify-between mb-1">
+                                <span class="font-bold text-xs uppercase tracking-wide truncate"
+                                      style={`color:${BLACK}`}>
+                                  {group.project_name ?? "No Project"}
+                                </span>
+                                <span class="font-mono font-bold text-xs ml-2 shrink-0"
+                                      style={`color:${color === GRAY ? GRAY : BLACK}`}>
+                                  {formatHours(group.total_seconds)}
+                                </span>
+                              </div>
+                              {/* Project progress bar */}
+                              <div class="h-2 w-full" style={`background:${BORDER}`}>
+                                <div class="h-full transition-all duration-500"
+                                     style={`width:${projectPct.toFixed(1)}%;background:${color}`} />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Category rows (indented) */}
+                          <Show when={group.categories.length > 1 ||
+                                      (group.categories.length === 1 && group.categories[0].category_name)}>
+                            <div class="ml-5 flex flex-col gap-1.5">
+                              {group.categories.map((cat) => {
+                                const catPct = (cat.total_seconds / group.total_seconds) * 100;
+                                return (
+                                  <div class="flex items-center gap-2">
+                                    <div class="flex-1 min-w-0">
+                                      <div class="flex items-center justify-between mb-0.5">
+                                        <span class="text-xs truncate" style={`color:${GRAY}`}>
+                                          {cat.category_name ?? "—"}
+                                        </span>
+                                        <span class="font-mono text-xs ml-2 shrink-0"
+                                              style={`color:${GRAY}`}>
+                                          {formatHours(cat.total_seconds)}
+                                        </span>
+                                      </div>
+                                      {/* Category bar (thinner, same color, proportional to project) */}
+                                      <div class="h-1 w-full" style={`background:${BORDER}`}>
+                                        <div class="h-full"
+                                             style={`width:${catPct.toFixed(1)}%;background:${color};opacity:0.5`} />
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </Show>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* ── Refresh button ── */}
+                  <div class="px-5 pb-6">
+                    <button class="bh-btn w-full" style={`background:${LIGHT};color:${BLACK};border:1px solid ${BORDER}`}
+                            onClick={loadWeekly} disabled={weeklyLoading()}>
+                      <i class="ri-refresh-line text-xs" /> Refresh
+                    </button>
+                  </div>
+
+                </div>
+              );
+            }}
+          </Show>
+        </Show>
       </div>
 
       {/* ── SETTINGS PANEL ───────────────────────────────── */}
@@ -604,44 +753,26 @@ export default function TimeEntriesPage(props: Props) {
           <div class="absolute inset-0" style="background:rgba(33,33,33,0.4)"
                onClick={() => setSettingsOpen(false)} />
           <div class="relative w-72 flex flex-col" style={`background:${WHITE};border-left:3px solid ${BLACK}`}>
-
-            {/* Black header */}
-            <div class="h-12 flex items-center justify-between px-5"
-                 style={`background:${BLACK}`}>
-              <span class="text-xs font-bold uppercase tracking-widest" style={`color:${WHITE}`}>
-                Settings
-              </span>
-              <button
-                class="w-7 h-7 flex items-center justify-center text-sm font-bold transition-colors"
+            <div class="h-12 flex items-center justify-between px-5" style={`background:${BLACK}`}>
+              <span class="text-xs font-bold uppercase tracking-widest" style={`color:${WHITE}`}>Settings</span>
+              <button class="w-7 h-7 flex items-center justify-center text-sm font-bold transition-colors"
                 style={`background:transparent;border:1px solid #555;color:${WHITE};cursor:pointer`}
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = WHITE; (e.currentTarget as HTMLElement).style.color = BLACK; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = WHITE; }}
-                onClick={() => setSettingsOpen(false)}
-              >
-                ✕
-              </button>
+                onClick={() => setSettingsOpen(false)}>✕</button>
             </div>
-
             <div class="flex-1 overflow-y-auto">
-
-              {/* Appearance section */}
               <div class="px-5 py-5" style={`border-bottom:1px solid ${BORDER}`}>
                 <p class="bh-label mb-4">Appearance</p>
                 <div class="flex items-center justify-between">
                   <span class="text-xs font-bold uppercase tracking-wide" style={`color:${BLACK}`}>Theme</span>
-                  <select
-                    class="bh-select"
-                    style="width:auto;min-width:90px"
-                    value={theme()}
-                    onChange={(e) => setTheme(e.currentTarget.value as Theme)}
-                  >
+                  <select class="bh-select" style="width:auto;min-width:90px"
+                    value={theme()} onChange={(e) => setTheme(e.currentTarget.value as Theme)}>
                     <option value="light">Light</option>
                     <option value="dark">Dark</option>
                   </select>
                 </div>
               </div>
-
-              {/* Sync section */}
               <div class="px-5 py-5">
                 <p class="bh-label mb-4">Sync</p>
                 <div class="flex items-center justify-between mb-3">
@@ -653,12 +784,8 @@ export default function TimeEntriesPage(props: Props) {
                       <Show when={props.syncOnline && props.pendingCount > 0}>{props.pendingCount} pending</Show>
                     </span>
                   </div>
-                  <button
-                    class="bh-btn"
-                    style={`background:${BLACK};color:${WHITE}`}
-                    onClick={props.onSync}
-                    disabled={props.syncing}
-                  >
+                  <button class="bh-btn" style={`background:${BLACK};color:${WHITE}`}
+                          onClick={props.onSync} disabled={props.syncing}>
                     <i class={`ri-refresh-line text-xs ${props.syncing ? "animate-spin" : ""}`} />
                     {props.syncing ? "Syncing" : "Sync"}
                   </button>
@@ -670,16 +797,9 @@ export default function TimeEntriesPage(props: Props) {
                 </Show>
               </div>
             </div>
-
-            {/* Logout */}
             <div class="px-5 py-5" style={`border-top:1px solid ${BORDER}`}>
-              <button
-                class="bh-btn bh-btn-lg w-full"
-                style={`background:${RED};color:${WHITE}`}
-                onClick={() => { setSettingsOpen(false); props.onLogout(); }}
-              >
-                Log Out
-              </button>
+              <button class="bh-btn bh-btn-lg w-full" style={`background:${RED};color:${WHITE}`}
+                      onClick={() => { setSettingsOpen(false); props.onLogout(); }}>Log Out</button>
             </div>
           </div>
         </div>
@@ -690,38 +810,27 @@ export default function TimeEntriesPage(props: Props) {
         <div class="fixed inset-0 z-50 flex items-center justify-center"
              style="background:rgba(33,33,33,0.5)">
           <div style={`background:${WHITE};width:320px`}>
-
-            {/* Month header: black */}
-            <div class="h-12 flex items-center justify-between px-4"
-                 style={`background:${BLACK}`}>
-              <button
-                class="w-8 h-8 flex items-center justify-center font-bold text-sm"
+            <div class="h-12 flex items-center justify-between px-4" style={`background:${BLACK}`}>
+              <button class="w-8 h-8 flex items-center justify-center font-bold text-sm"
                 style={`background:transparent;border:1px solid #555;color:${WHITE};cursor:pointer`}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#333"}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
-                onClick={() => { const d = calendarView(); setCalendarView(new Date(d.getFullYear(), d.getMonth()-1, 1)); }}
-              >←</button>
+                onClick={() => { const d = calendarView(); setCalendarView(new Date(d.getFullYear(), d.getMonth()-1, 1)); }}>←</button>
               <span class="text-xs font-bold uppercase tracking-widest" style={`color:${WHITE}`}>
                 {calendarView().toLocaleString("default",{month:"long",year:"numeric"}).toUpperCase()}
               </span>
-              <button
-                class="w-8 h-8 flex items-center justify-center font-bold text-sm"
+              <button class="w-8 h-8 flex items-center justify-center font-bold text-sm"
                 style={`background:transparent;border:1px solid #555;color:${WHITE};cursor:pointer`}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#333"}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
                 onClick={() => { const d = calendarView(); const n = new Date(d.getFullYear(), d.getMonth()+1, 1); if (n <= todayDate()) setCalendarView(n); }}
-                disabled={!canGoNext()}
-              >→</button>
+                disabled={!canGoNext()}>→</button>
             </div>
-
-            {/* Day headers */}
             <div class="grid grid-cols-7 text-center px-3 pt-4 pb-2">
               <For each={["S","M","T","W","T","F","S"]}>
                 {(d) => <span class="text-xs font-bold uppercase" style={`color:${GRAY}`}>{d}</span>}
               </For>
             </div>
-
-            {/* Day grid */}
             <div class="grid grid-cols-7 gap-y-1 px-3 pb-4">
               <For each={calDays()}>
                 {(day) => (
@@ -729,15 +838,13 @@ export default function TimeEntriesPage(props: Props) {
                     <Show when={day !== null} fallback={<span />}>
                       <button
                         class="w-9 h-9 flex items-center justify-center text-sm font-bold transition-colors"
-                        style={
-                          isSelected(day!)
-                            ? `background:${RED};color:${WHITE};border:none;cursor:pointer`
-                            : isToday2(day!)
-                              ? `background:${YELLOW};color:${BLACK};border:none;cursor:pointer`
-                              : isDisabled(day!)
-                                ? `background:transparent;color:${BORDER};border:none;cursor:not-allowed`
-                                : `background:transparent;color:${BLACK};border:none;cursor:pointer`
-                        }
+                        style={isSelected(day!)
+                          ? `background:${RED};color:${WHITE};border:none;cursor:pointer`
+                          : isToday2(day!)
+                            ? `background:${YELLOW};color:${BLACK};border:none;cursor:pointer`
+                            : isDisabled(day!)
+                              ? `background:transparent;color:${BORDER};border:none;cursor:not-allowed`
+                              : `background:transparent;color:${BLACK};border:none;cursor:pointer`}
                         onMouseEnter={e => { if (!isDisabled(day!) && !isSelected(day!)) (e.currentTarget as HTMLElement).style.background = LIGHT; }}
                         onMouseLeave={e => {
                           if (isSelected(day!)) (e.currentTarget as HTMLElement).style.background = RED;
@@ -745,8 +852,7 @@ export default function TimeEntriesPage(props: Props) {
                           else (e.currentTarget as HTMLElement).style.background = "transparent";
                         }}
                         disabled={isDisabled(day!)}
-                        onClick={() => setCalendarTemp(calDayDate(day!))}
-                      >
+                        onClick={() => setCalendarTemp(calDayDate(day!))}>
                         {day}
                       </button>
                     </Show>
@@ -754,22 +860,12 @@ export default function TimeEntriesPage(props: Props) {
                 )}
               </For>
             </div>
-
-            {/* Actions */}
             <div class="flex gap-2 px-4 pb-4" style={`border-top:1px solid ${BORDER};padding-top:12px`}>
               <button class="bh-btn flex-1" style={`background:${LIGHT};color:${BLACK}`}
-                      onClick={() => setCalendarOpen(false)}>
-                Cancel
-              </button>
-              <button
-                class="bh-btn flex-1"
-                style={`background:${BLACK};color:${WHITE}`}
-                onClick={() => { setSelectedDate(new Date(calendarTemp())); setCalendarOpen(false); }}
-              >
-                Confirm
-              </button>
+                      onClick={() => setCalendarOpen(false)}>Cancel</button>
+              <button class="bh-btn flex-1" style={`background:${BLACK};color:${WHITE}`}
+                      onClick={() => { setSelectedDate(new Date(calendarTemp())); setCalendarOpen(false); }}>Confirm</button>
             </div>
-
           </div>
         </div>
       </Show>
