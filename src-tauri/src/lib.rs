@@ -8,6 +8,7 @@ use tauri::{
 };
 
 mod db_commands;
+mod deep_link;
 mod models;
 mod setup;
 mod sync;
@@ -21,10 +22,11 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
-        // ── New: OS notifications ─────────────────────────
+        // ── OS notifications ──────────────────────────────
         .plugin(tauri_plugin_notification::init())
-        // ── New: Global keyboard shortcut ─────────────────
-        //    CmdOrControl+Shift+T from any app → toggle timer
+        // ── Deep link: sandqlock:// ───────────────────────
+        .plugin(tauri_plugin_deep_link::init())
+        // ── Global keyboard shortcut ──────────────────────
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_shortcut("CmdOrControl+Shift+T")
@@ -39,6 +41,20 @@ pub fn run() {
         )
         .setup(|app| {
             app.manage(setup::get_database_pool(app));
+
+            // ── Deep link handler ─────────────────────────
+            // Receives sandqlock:// URLs from the OS and emits frontend events.
+            // Works for both cold-start (URL passed on launch) and warm
+            // (app already running — plugin forwards to this instance).
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let app_handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        deep_link::handle(&app_handle, url.as_str());
+                    }
+                });
+            }
 
             // ── System tray ───────────────────────────────
             let show_item =
@@ -61,7 +77,6 @@ pub fn run() {
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
                 .tooltip("SandQlock")
-                // Menu item clicks → emit events to frontend
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(w) = app.get_webview_window("main") {
@@ -69,16 +84,11 @@ pub fn run() {
                             let _ = w.set_focus();
                         }
                     }
-                    "stop" => {
-                        let _ = app.emit("tray:stop-timer", ());
-                    }
-                    "cancel" => {
-                        let _ = app.emit("tray:cancel-timer", ());
-                    }
-                    "quit" => app.exit(0),
+                    "stop"   => { let _ = app.emit("tray:stop-timer", ()); }
+                    "cancel" => { let _ = app.emit("tray:cancel-timer", ()); }
+                    "quit"   => app.exit(0),
                     _ => {}
                 })
-                // Left-click tray icon → show main window
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
@@ -95,7 +105,7 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // ── Hide to tray on window close (don't quit) ─
+            // ── Hide to tray on window close ──────────────
             let app_handle = app.handle().clone();
             if let Some(window) = app.get_webview_window("main") {
                 window.on_window_event(move |event| {
@@ -108,9 +118,7 @@ pub fn run() {
                 });
             }
 
-            info!(
-                "SandQlock started — tray active, global shortcut: CmdOrControl+Shift+T"
-            );
+            info!("SandQlock started — tray · shortcut · deep-link sandqlock://");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -124,11 +132,11 @@ pub fn run() {
             db_commands::list_categories,
             db_commands::trigger_sync,
             db_commands::get_sync_status,
-            // ── Tray + notification commands ───────────────
             db_commands::update_tray_timer,
             db_commands::set_tray_idle,
             db_commands::show_notification,
             db_commands::show_main_window,
+            db_commands::find_project_id_by_name,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

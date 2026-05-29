@@ -115,12 +115,66 @@ function App() {
       if (timerRunning()) {
         handleTimerStop();
       } else {
-        // Bring window to front and navigate to form
         invoke("show_main_window").catch(() => {});
         setEditingEntry(null);
         setFormDate(toISODate(new Date()));
         setInitialDurationSeconds(undefined);
         setView("form");
+      }
+    });
+
+    // ── Deep link: sandqlock:// ────────────────────────────────────────────
+    // sandqlock://start?task=Meeting&project=Alpha  → start timer immediately
+    listen("deeplink:start", async (event) => {
+      const p = event.payload as {
+        task: string;
+        project_name?: string | null;
+        category_name?: string | null;
+      };
+
+      // Resolve project name → ID from local SQLite (case-insensitive)
+      let projectId: string | null = null;
+      if (p.project_name) {
+        try {
+          projectId = await invoke<string | null>("find_project_id_by_name", {
+            name: p.project_name,
+          });
+        } catch { /* proceed without project */ }
+      }
+
+      if (timerRunning()) handleTimerCancel();
+
+      handleStartTimerFromForm({
+        task_name: p.task,
+        project_id: projectId,
+        category_id: null,
+        overtime: false,
+        date: toISODate(new Date()),
+      });
+
+      invoke("show_notification", {
+        title: "SandQlock — Timer Started",
+        body: p.project_name ? `${p.task}  ·  ${p.project_name}` : p.task,
+      }).catch(() => {});
+    });
+
+    // sandqlock://stop  → stop and save running timer
+    listen("deeplink:stop", () => {
+      if (timerRunning()) handleTimerStop();
+    });
+
+    // sandqlock://new?task=X  → open form (task name shown in notification)
+    listen("deeplink:new", (event) => {
+      const task = event.payload as string | null;
+      setEditingEntry(null);
+      setFormDate(toISODate(new Date()));
+      setInitialDurationSeconds(undefined);
+      setView("form");
+      if (task) {
+        invoke("show_notification", {
+          title: "SandQlock — New Entry",
+          body: `Form opened for: ${task}`,
+        }).catch(() => {});
       }
     });
   });

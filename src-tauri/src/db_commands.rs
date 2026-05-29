@@ -292,6 +292,20 @@ pub async fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Looks up a project ID by exact name match (case-insensitive).
+/// Used by the deep-link handler to resolve `sandqlock://start?project=Alpha`.
+#[tauri::command]
+pub async fn find_project_id_by_name(
+    name: String,
+    state: State<'_, SqlitePool>,
+) -> Result<Option<String>, String> {
+    sqlx::query_scalar("SELECT id FROM projects WHERE LOWER(name) = LOWER(?)")
+        .bind(&name)
+        .fetch_optional(state.inner())
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // ── Sync commands ─────────────────────────────────────────────────────────────
 
 #[tauri::command]
