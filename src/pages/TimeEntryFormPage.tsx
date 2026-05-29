@@ -28,6 +28,16 @@ interface Props {
   onStartTimer?: (draft: TimerDraft) => void;
 }
 
+/* Bauhaus palette */
+const RED    = "#E53935";
+const YELLOW = "#FDD835";
+const BLUE   = "#1E88E5";
+const BLACK  = "#212121";
+const WHITE  = "#FAFAFA";
+const GRAY   = "#9E9E9E";
+const LIGHT  = "#F5F5F5";
+const BORDER = "#E0E0E0";
+
 export default function TimeEntryFormPage(props: Props) {
   const [taskName, setTaskName] = createSignal("");
   const [durationMinutes, setDurationMinutes] = createSignal(30);
@@ -40,14 +50,11 @@ export default function TimeEntryFormPage(props: Props) {
   const [categories, setCategories] = createSignal<Category[]>([]);
   const [loadingProjects, setLoadingProjects] = createSignal(false);
   const [loadingCategories, setLoadingCategories] = createSignal(false);
-
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | undefined>();
 
-  // Populate form fields when entry changes
   createEffect(() => {
     setTaskName(props.entry?.task_name ?? "");
-    // Convert stored seconds → display minutes (rounded); fallback to initialDurationSeconds or 30 min
     const storedSeconds = props.entry?.duration_seconds ?? props.initialDurationSeconds;
     setDurationMinutes(storedSeconds !== undefined ? Math.round(storedSeconds / 60) || 1 : 30);
     setDate(props.entry?.date ?? props.date);
@@ -57,7 +64,6 @@ export default function TimeEntryFormPage(props: Props) {
     setError(undefined);
   });
 
-  // Load projects on mount
   createEffect(() => {
     setLoadingProjects(true);
     listProjects(props.token)
@@ -66,19 +72,14 @@ export default function TimeEntryFormPage(props: Props) {
       .finally(() => setLoadingProjects(false));
   });
 
-  // Load categories when project changes
   createEffect(() => {
     const pid = projectId();
     setCategories([]);
-    if (!pid) {
-      setCategoryId("");
-      return;
-    }
+    if (!pid) { setCategoryId(""); return; }
     setLoadingCategories(true);
     listCategories(props.token, pid)
       .then((cats) => {
         setCategories(cats);
-        // Keep current category only if it belongs to the loaded list; otherwise clear
         setCategoryId((prev) => (cats.some((c) => c.id === prev) ? prev : ""));
       })
       .catch((e) => console.error("[Form] listCategories failed:", e))
@@ -87,31 +88,20 @@ export default function TimeEntryFormPage(props: Props) {
 
   async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
-    if (!taskName().trim()) {
-      setError("Task name is required.");
-      return;
-    }
-    if (durationMinutes() < 1) {
-      setError("Duration must be at least 1 minute.");
-      return;
-    }
-
-    setLoading(true);
-    setError(undefined);
+    if (!taskName().trim()) { setError("Task name is required."); return; }
+    if (durationMinutes() < 1) { setError("Duration must be at least 1 minute."); return; }
+    setLoading(true); setError(undefined);
     try {
       const attrs: TimeEntryInput = {
         task_name: taskName().trim(),
-        duration_seconds: durationMinutes() * 60, // user inputs minutes, stored as seconds
+        duration_seconds: durationMinutes() * 60,
         date: date(),
         overtime: overtime(),
         project_id: projectId() || null,
         category_id: categoryId() || null,
       };
-      if (props.entry) {
-        await updateTimeEntry(props.token, props.entry.id, attrs);
-      } else {
-        await createTimeEntry(props.token, attrs);
-      }
+      if (props.entry) await updateTimeEntry(props.token, props.entry.id, attrs);
+      else await createTimeEntry(props.token, attrs);
       props.onSaved();
       props.onBack();
     } catch (err) {
@@ -122,10 +112,7 @@ export default function TimeEntryFormPage(props: Props) {
   }
 
   function handleStartTimer() {
-    if (!taskName().trim()) {
-      setError("Task name is required.");
-      return;
-    }
+    if (!taskName().trim()) { setError("Task name is required."); return; }
     props.onStartTimer!({
       task_name: taskName().trim(),
       project_id: projectId() || null,
@@ -135,147 +122,199 @@ export default function TimeEntryFormPage(props: Props) {
     });
   }
 
+  const accentColor = () => props.entry ? BLUE : RED;
+
   return (
-    <div class="flex flex-col min-h-screen bg-base-200">
-      {/* Header */}
-      <div class="navbar bg-primary text-primary-content px-4 shadow">
-        <div class="flex-none">
-          <button class="btn btn-ghost btn-sm btn-circle text-primary-content" onClick={props.onBack}>
-            <i class="ri-arrow-left-line text-xl" />
+    <div class="flex h-screen overflow-hidden" style={`background:${WHITE}`}>
+
+      {/* ── SIDEBAR ──────────────────────────────────────── */}
+      <aside class="flex flex-col w-14 shrink-0" style={`background:${BLACK}`}>
+
+        {/* Back button */}
+        <div class="h-14 flex items-center justify-center"
+             style={`border-bottom:1px solid #333`}>
+          <button
+            title="Back"
+            onClick={props.onBack}
+            class="w-9 h-9 flex items-center justify-center font-bold transition-colors"
+            style={`background:transparent;border:1px solid #444;color:${WHITE};cursor:pointer`}
+            onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = WHITE}
+            onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = "#444"}
+          >
+            ←
           </button>
         </div>
-        <div class="flex-1 px-2">
-          <span class="font-bold text-base">
+
+        {/* Page type indicator (geometric color block) */}
+        <div class="flex-1 flex flex-col items-center justify-center gap-4 pb-8">
+          {/* Circle: edit=blue, new=red */}
+          <div class="w-8 h-8 rounded-full" style={`background:${accentColor()}`} />
+          {/* Small square */}
+          <div class="w-4 h-4" style={`background:${YELLOW}`} />
+        </div>
+      </aside>
+
+      {/* ── MAIN CONTENT ─────────────────────────────────── */}
+      <div class="flex-1 flex flex-col overflow-hidden">
+
+        {/* Header strip with accent color */}
+        <div class="h-12 flex items-center px-5 shrink-0"
+             style={`border-bottom:3px solid ${accentColor()};background:${WHITE}`}>
+          <h2 class="font-black text-sm uppercase tracking-widest" style={`color:${BLACK}`}>
             {props.entry ? "Edit Entry" : "New Entry"}
-          </span>
+          </h2>
+        </div>
+
+        {/* Scrollable form */}
+        <div class="flex-1 overflow-y-auto">
+          <form onSubmit={handleSubmit}>
+
+            {/* Form fields as full-width rows */}
+            <div class="px-6 pt-6 pb-4 flex flex-col gap-7">
+
+              {/* Task name */}
+              <div>
+                <label class="bh-label">Task Name</label>
+                <input
+                  type="text"
+                  class="bh-input"
+                  placeholder="What did you work on?"
+                  value={taskName()}
+                  onInput={(e) => setTaskName(e.currentTarget.value)}
+                  autofocus
+                />
+              </div>
+
+              {/* Duration */}
+              <div>
+                <label class="bh-label">Duration (minutes)</label>
+                <input
+                  type="number"
+                  class="bh-input"
+                  min={1}
+                  value={durationMinutes()}
+                  onInput={(e) => setDurationMinutes(parseInt(e.currentTarget.value) || 1)}
+                />
+              </div>
+
+              {/* Date */}
+              <div>
+                <label class="bh-label">Date</label>
+                <input
+                  type="date"
+                  class="bh-input"
+                  value={date()}
+                  onInput={(e) => setDate(e.currentTarget.value)}
+                />
+              </div>
+
+              {/* Project */}
+              <div>
+                <label class="bh-label flex items-center gap-2">
+                  Project
+                  <Show when={loadingProjects()}>
+                    <div class="w-3 h-3 rounded-full animate-spin" style={`border:1.5px solid ${BORDER};border-top-color:${BLUE}`} />
+                  </Show>
+                </label>
+                <select
+                  class="bh-select"
+                  onChange={(e) => setProjectId(e.currentTarget.value)}
+                  disabled={loadingProjects()}
+                >
+                  <option value="" selected={projectId() === ""}>— No project —</option>
+                  <For each={projects()}>
+                    {(p) => <option value={p.id} selected={projectId() === p.id}>{p.name}</option>}
+                  </For>
+                </select>
+              </div>
+
+              {/* Category */}
+              <Show when={projectId()}>
+                <div>
+                  <label class="bh-label flex items-center gap-2">
+                    Category
+                    <Show when={loadingCategories()}>
+                      <div class="w-3 h-3 rounded-full animate-spin" style={`border:1.5px solid ${BORDER};border-top-color:${BLUE}`} />
+                    </Show>
+                  </label>
+                  <select
+                    class="bh-select"
+                    onChange={(e) => setCategoryId(e.currentTarget.value)}
+                    disabled={loadingCategories()}
+                  >
+                    <option value="" selected={categoryId() === ""}>— No category —</option>
+                    <For each={categories()}>
+                      {(c) => <option value={c.id} selected={categoryId() === c.id}>{c.name}</option>}
+                    </For>
+                  </select>
+                </div>
+              </Show>
+
+              {/* Overtime toggle */}
+              <div>
+                <label class="bh-label">Overtime</label>
+                <button
+                  type="button"
+                  class="flex items-center gap-3 py-2 transition-opacity"
+                  style="background:transparent;border:none;cursor:pointer;padding-left:0"
+                  onClick={() => setOvertime(v => !v)}
+                >
+                  {/* Square checkbox — Bauhaus square, not circle */}
+                  <div class="w-5 h-5 flex items-center justify-center"
+                       style={overtime()
+                         ? `background:${RED};border:2px solid ${RED}`
+                         : `background:transparent;border:2px solid ${BLACK}`}>
+                    <Show when={overtime()}>
+                      <span style={`color:${WHITE};font-size:11px;font-weight:900;line-height:1`}>✓</span>
+                    </Show>
+                  </div>
+                  <span class="font-bold text-sm uppercase tracking-wide"
+                        style={`color:${overtime() ? RED : BLACK}`}>
+                    {overtime() ? "Yes — overtime" : "No — regular hours"}
+                  </span>
+                </button>
+              </div>
+
+              {/* Error */}
+              <Show when={error()}>
+                <div class="py-3 px-4 text-sm font-bold"
+                     style={`background:${RED};color:${WHITE};border-left:4px solid #B71C1C`}>
+                  {error()}
+                </div>
+              </Show>
+
+            </div>
+
+            {/* Action bar — pinned at bottom */}
+            <div class="px-6 pb-6 flex flex-col gap-3"
+                 style={`border-top:1px solid ${BORDER};padding-top:20px`}>
+              <Show when={!props.entry && props.onStartTimer}>
+                <button
+                  type="button"
+                  class="bh-btn bh-btn-lg w-full"
+                  style={`background:${LIGHT};color:${BLACK};border:1px solid ${BORDER}`}
+                  onClick={handleStartTimer}
+                  disabled={loading()}
+                >
+                  <i class="ri-timer-line" /> Start Timer
+                </button>
+              </Show>
+
+              <button
+                type="submit"
+                class="bh-btn bh-btn-lg w-full"
+                style={`background:${accentColor()};color:${WHITE}`}
+                disabled={loading()}
+              >
+                {loading()
+                  ? <div class="w-4 h-4 rounded-full animate-spin" style={`border:2px solid rgba(255,255,255,0.3);border-top-color:${WHITE}`} />
+                  : props.entry ? "Save Changes" : "Save Entry"}
+              </button>
+            </div>
+          </form>
         </div>
       </div>
 
-      {/* Form */}
-      <form onSubmit={handleSubmit} class="flex flex-col gap-4 p-4">
-        {/* Task name */}
-        <label class="form-control w-full">
-          <div class="label pb-1">
-            <span class="label-text text-xs font-medium">Task name</span>
-          </div>
-          <input
-            type="text"
-            class="input input-bordered w-full bg-base-100"
-            placeholder="What did you work on?"
-            value={taskName()}
-            onInput={(e) => setTaskName(e.currentTarget.value)}
-            autofocus
-          />
-        </label>
-
-        {/* Duration */}
-        <label class="form-control w-full">
-          <div class="label pb-1">
-            <span class="label-text text-xs font-medium">Duration (minutes)</span>
-          </div>
-          <input
-            type="number"
-            class="input input-bordered w-full bg-base-100"
-            min={1}
-            value={durationMinutes()}
-            onInput={(e) => setDurationMinutes(parseInt(e.currentTarget.value) || 1)}
-          />
-        </label>
-
-        {/* Date */}
-        <label class="form-control w-full">
-          <div class="label pb-1">
-            <span class="label-text text-xs font-medium">Date</span>
-          </div>
-          <input
-            type="date"
-            class="input input-bordered w-full bg-base-100"
-            value={date()}
-            onInput={(e) => setDate(e.currentTarget.value)}
-          />
-        </label>
-
-        {/* Project */}
-        <label class="form-control w-full">
-          <div class="label pb-1">
-            <span class="label-text text-xs font-medium">Project</span>
-            <Show when={loadingProjects()}>
-              <span class="loading loading-spinner loading-xs text-primary" />
-            </Show>
-          </div>
-          <select
-            class="select select-bordered w-full bg-base-100"
-            onChange={(e) => setProjectId(e.currentTarget.value)}
-            disabled={loadingProjects()}
-          >
-            <option value="" selected={projectId() === ""}>— No project —</option>
-            <For each={projects()}>
-              {(p) => <option value={p.id} selected={projectId() === p.id}>{p.name}</option>}
-            </For>
-          </select>
-        </label>
-
-        {/* Category — only shown when a project is selected */}
-        <Show when={projectId()}>
-          <label class="form-control w-full">
-            <div class="label pb-1">
-              <span class="label-text text-xs font-medium">Category</span>
-              <Show when={loadingCategories()}>
-                <span class="loading loading-spinner loading-xs text-primary" />
-              </Show>
-            </div>
-            <select
-              class="select select-bordered w-full bg-base-100"
-              onChange={(e) => setCategoryId(e.currentTarget.value)}
-              disabled={loadingCategories()}
-            >
-              <option value="" selected={categoryId() === ""}>— No category —</option>
-              <For each={categories()}>
-                {(c) => <option value={c.id} selected={categoryId() === c.id}>{c.name}</option>}
-              </For>
-            </select>
-          </label>
-        </Show>
-
-        {/* Overtime */}
-        <label class="flex items-center gap-3 cursor-pointer select-none bg-base-100 rounded-lg px-4 py-3">
-          <input
-            type="checkbox"
-            class="checkbox checkbox-sm checkbox-primary"
-            checked={overtime()}
-            onChange={(e) => setOvertime(e.currentTarget.checked)}
-          />
-          <span class="text-sm font-medium">Overtime</span>
-        </label>
-
-        {/* Error */}
-        <Show when={error()}>
-          <div class="alert alert-error py-2 text-sm">
-            <i class="ri-error-warning-line" />
-            {error()}
-          </div>
-        </Show>
-
-        {/* Actions */}
-        <Show when={!props.entry && props.onStartTimer}>
-          <button
-            type="button"
-            class="btn btn-outline btn-primary w-full"
-            onClick={handleStartTimer}
-            disabled={loading()}
-          >
-            <i class="ri-timer-line" /> Start Timer
-          </button>
-        </Show>
-
-        <button
-          type="submit"
-          class="btn btn-primary w-full"
-          disabled={loading()}
-        >
-          {loading() ? <span class="loading loading-spinner loading-sm" /> : "Save"}
-        </button>
-      </form>
     </div>
   );
 }
