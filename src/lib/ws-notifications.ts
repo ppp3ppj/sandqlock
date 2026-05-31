@@ -21,9 +21,14 @@ let ws: Awaited<ReturnType<typeof WebSocket.connect>> | null = null;
 let reconnectTimer = 0;
 let stopped = false;
 
+export interface NudgePayload {
+  message: string;
+  mode: "notify" | "popup";
+}
+
 export async function connectWsNotifications(
   token: string,
-  onNudge: (message: string) => void,
+  onNudge: (payload: NudgePayload) => void,
 ): Promise<void> {
   stopped = false;
   await tryConnect(token, onNudge);
@@ -38,7 +43,7 @@ export function disconnectWsNotifications(): void {
 
 async function tryConnect(
   token: string,
-  onNudge: (message: string) => void,
+  onNudge: (payload: NudgePayload) => void,
 ): Promise<void> {
   if (stopped) return;
 
@@ -56,19 +61,24 @@ async function tryConnect(
           const payload = JSON.parse(msg.data as string) as {
             type: string;
             message: string;
+            mode?: string;
           };
           console.log("[SandQlock] WS parsed payload:", payload);
 
           if (payload.type === "nudge") {
-            onNudge(payload.message);
-            console.log("[SandQlock] Calling show_notification...");
-            // Show native OS notification
-            invoke("show_notification", {
-              title: "SandQlock — Reminder",
-              body: payload.message,
-            })
-              .then(() => console.log("[SandQlock] Notification shown ✓"))
-              .catch((err) => console.error("[SandQlock] show_notification failed:", err));
+            const mode = (payload.mode ?? "notify") as "notify" | "popup";
+            onNudge({ message: payload.message, mode });
+
+            if (mode === "notify") {
+              console.log("[SandQlock] Calling show_notification...");
+              invoke("show_notification", {
+                title: "SandQlock — Reminder",
+                body: payload.message,
+              })
+                .then(() => console.log("[SandQlock] Notification shown ✓"))
+                .catch((err) => console.error("[SandQlock] show_notification failed:", err));
+            }
+            // popup mode handled in App.tsx via onNudge callback
           }
         } catch (err) {
           console.error("[SandQlock] Failed to parse WS message:", err, msg.data);
@@ -90,7 +100,7 @@ async function tryConnect(
   }
 }
 
-function scheduleReconnect(token: string, onNudge: (msg: string) => void) {
+function scheduleReconnect(token: string, onNudge: (payload: NudgePayload) => void) {
   if (stopped) return;
   clearTimeout(reconnectTimer);
   reconnectTimer = window.setTimeout(

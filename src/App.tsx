@@ -2,7 +2,7 @@ import { createSignal, onMount, Show } from "solid-js";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { initTheme } from "./theme";
-import { connectWsNotifications, disconnectWsNotifications } from "./lib/ws-notifications";
+import { connectWsNotifications, disconnectWsNotifications, type NudgePayload } from "./lib/ws-notifications";
 import LoginPage from "./pages/LoginPage";
 import TimeEntriesPage from "./pages/TimeEntriesPage";
 import TimeEntryFormPage from "./pages/TimeEntryFormPage";
@@ -38,6 +38,8 @@ function App() {
   const [checking, setChecking] = createSignal(true);
   const [token, setToken] = createSignal("");
   const [view, setView] = createSignal<View>("list");
+  // In-app nudge popup (mode: "popup" from admin)
+  const [nudgePopup, setNudgePopup] = createSignal<string | null>(null);
 
   // Form state
   const [editingEntry, setEditingEntry] = createSignal<TimeEntry | null>(null);
@@ -142,11 +144,13 @@ function App() {
     runSync(t, true);
     startSyncInterval(t);
     // Connect raw WebSocket for instant nudge delivery (no polling, no DB)
-    connectWsNotifications(t, (message) => {
-      invoke("show_notification", {
-        title: "SandQlock — Reminder",
-        body: message,
-      }).catch(() => {});
+    connectWsNotifications(t, ({ message, mode }: NudgePayload) => {
+      if (mode === "popup") {
+        // Show the in-app overlay popup inside sandqlock
+        invoke("show_main_window").catch(() => {}); // bring window to front
+        setNudgePopup(message);
+      }
+      // OS notification is handled inside ws-notifications.ts for mode "notify"
     }).catch(() => {});
   }
 
@@ -309,6 +313,8 @@ function App() {
             pendingCount={pendingCount()}
             lastSyncAt={lastSyncAt()}
             onSync={() => runSync(token())}
+            nudgePopup={nudgePopup()}
+            onDismissNudge={() => setNudgePopup(null)}
           />
         </Show>
       </Show>

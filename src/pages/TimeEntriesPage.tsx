@@ -24,6 +24,8 @@ interface Props {
   pendingCount: number;
   lastSyncAt: string | null;
   onSync: () => void;
+  nudgePopup: string | null;
+  onDismissNudge: () => void;
 }
 
 /* ── Bauhaus palette ─────────────────────────────────── */
@@ -865,6 +867,46 @@ export default function TimeEntriesPage(props: Props) {
                       onClick={() => setCalendarOpen(false)}>Cancel</button>
               <button class="bh-btn flex-1" style={`background:${BLACK};color:${WHITE}`}
                       onClick={() => { setSelectedDate(new Date(calendarTemp())); setCalendarOpen(false); }}>Confirm</button>
+            </div>
+          </div>
+        </div>
+      </Show>
+
+      {/* ── IN-APP NUDGE POPUP (mode: popup) ────────────────── */}
+      <Show when={props.nudgePopup}>
+        <div class="fixed inset-0 z-[70] flex items-center justify-center"
+             style="background:rgba(33,33,33,0.8)">
+          <div style={`background:${WHITE};max-width:380px;width:90%;border:3px solid ${BLACK};box-shadow:8px 8px 0 ${BLACK}`}>
+
+            {/* Yellow header */}
+            <div class="px-5 py-4" style={`background:${YELLOW};border-bottom:3px solid ${BLACK}`}>
+              <p class="font-black text-xs uppercase tracking-widest mb-0.5" style={`color:${BLACK}`}>
+                Message from your manager
+              </p>
+              <div class="flex items-center gap-2 mt-1">
+                <div class="w-2 h-2 rounded-full" style={`background:${RED}`} />
+                <span class="font-black text-xs uppercase tracking-wide" style={`color:${BLACK}`}>
+                  SandQlock
+                </span>
+              </div>
+            </div>
+
+            {/* Message */}
+            <div class="px-5 py-5">
+              <p class="text-sm leading-relaxed" style={`color:${BLACK};font-weight:500`}>
+                {props.nudgePopup}
+              </p>
+            </div>
+
+            {/* Actions */}
+            <div class="px-5 pb-5 flex gap-2">
+              <button
+                class="bh-btn bh-btn-lg flex-1"
+                style={`background:${BLACK};color:${WHITE}`}
+                onClick={props.onDismissNudge}
+              >
+                Got it
+              </button>
             </div>
           </div>
         </div>
