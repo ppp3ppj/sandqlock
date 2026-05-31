@@ -6,6 +6,7 @@ import { connectWsNotifications, disconnectWsNotifications, type NudgePayload } 
 import LoginPage from "./pages/LoginPage";
 import TimeEntriesPage from "./pages/TimeEntriesPage";
 import TimeEntryFormPage from "./pages/TimeEntryFormPage";
+import GhostWindow from "./pages/GhostWindow";
 import { getToken, clearToken } from "./lib/auth-store";
 import { TimeEntry, createTimeEntry, triggerSync, getSyncStatus } from "./lib/local-api";
 import "./App.css";
@@ -33,7 +34,15 @@ function formatDurationShort(seconds: number): string {
   return `${s}s`;
 }
 
+// Detected once at module load — ghost windows open with ?ghost=1
+const IS_GHOST_WINDOW = window.location.search.includes("ghost=1");
+
 function App() {
+  // Ghost window: render the minimal overlay UI, skip all auth/sync logic
+  if (IS_GHOST_WINDOW) {
+    return <GhostWindow />;
+  }
+
   const [loggedIn, setLoggedIn] = createSignal(false);
   const [checking, setChecking] = createSignal(true);
   const [token, setToken] = createSignal("");
@@ -146,11 +155,13 @@ function App() {
     // Connect raw WebSocket for instant nudge delivery (no polling, no DB)
     connectWsNotifications(t, ({ message, mode }: NudgePayload) => {
       if (mode === "popup") {
-        // Show the in-app overlay popup inside sandqlock
-        invoke("show_main_window").catch(() => {}); // bring window to front
+        invoke("show_main_window").catch(() => {});
         setNudgePopup(message);
+      } else if (mode === "ghost") {
+        // Open the always-on-top frameless ghost window
+        invoke("show_ghost_window", { message }).catch(() => {});
       }
-      // OS notification is handled inside ws-notifications.ts for mode "notify"
+      // "notify" mode: OS notification handled inside ws-notifications.ts
     }).catch(() => {});
   }
 

@@ -40,6 +40,7 @@ pub fn run() {
         )
         .setup(|app| {
             app.manage(setup::get_database_pool(app));
+            app.manage(db_commands::GhostMessage(std::sync::Mutex::new(None)));
 
             // ── System tray ───────────────────────────────
             let show_item =
@@ -130,6 +131,9 @@ pub fn run() {
             db_commands::set_tray_idle,
             db_commands::show_notification,
             db_commands::show_main_window,
+            db_commands::show_ghost_window,
+            db_commands::close_ghost_window,
+            db_commands::get_ghost_message,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

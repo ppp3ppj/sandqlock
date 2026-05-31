@@ -23,7 +23,7 @@ let stopped = false;
 
 export interface NudgePayload {
   message: string;
-  mode: "notify" | "popup";
+  mode: "notify" | "popup" | "ghost";
 }
 
 export async function connectWsNotifications(
@@ -66,7 +66,7 @@ async function tryConnect(
           console.log("[SandQlock] WS parsed payload:", payload);
 
           if (payload.type === "nudge") {
-            const mode = (payload.mode ?? "notify") as "notify" | "popup";
+            const mode = (payload.mode ?? "notify") as "notify" | "popup" | "ghost";
             onNudge({ message: payload.message, mode });
 
             if (mode === "notify") {
