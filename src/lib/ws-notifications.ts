@@ -13,7 +13,8 @@
 import WebSocket from "@tauri-apps/plugin-websocket";
 import { invoke } from "@tauri-apps/api/core";
 
-const WS_URL = "ws://localhost:4000/ws/notifications";
+// Phoenix appends /websocket to the socket path for WebSocket upgrades
+const WS_URL = "ws://localhost:4000/ws/notifications/websocket";
 const RECONNECT_DELAY_MS = 5_000;
 
 let ws: Awaited<ReturnType<typeof WebSocket.connect>> | null = null;
@@ -75,7 +76,8 @@ async function tryConnect(
     });
 
     console.log("[SandQlock] WebSocket notification connected");
-  } catch {
+  } catch (err) {
+    console.error("[SandQlock] WebSocket connection failed:", err);
     scheduleReconnect(token, onNudge);
   }
 }
