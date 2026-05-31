@@ -7,6 +7,7 @@ use tauri::{
     Emitter, Manager,
 };
 
+mod app_tracker;
 mod db_commands;
 mod models;
 mod setup;
@@ -39,7 +40,10 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
-            app.manage(setup::get_database_pool(app));
+            let pool = setup::get_database_pool(app);
+            // Start passive app time tracker (polls every 60s)
+            app_tracker::start(pool.clone());
+            app.manage(pool);
             app.manage(db_commands::GhostMessage(std::sync::Mutex::new(None)));
 
             // ── System tray ───────────────────────────────
@@ -134,6 +138,7 @@ pub fn run() {
             db_commands::show_ghost_window,
             db_commands::close_ghost_window,
             db_commands::get_ghost_message,
+            db_commands::get_app_usage_today,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

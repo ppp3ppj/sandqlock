@@ -116,3 +116,12 @@ export async function triggerSync(token: string, startup = false): Promise<SyncR
 export async function getSyncStatus(): Promise<SyncStatus> {
   return invoke<SyncStatus>("get_sync_status");
 }
+
+export interface AppUsageRow {
+  app_name: string;
+  seconds: number;
+}
+
+export async function getAppUsageToday(): Promise<AppUsageRow[]> {
+  return invoke<AppUsageRow[]>("get_app_usage_today");
+}

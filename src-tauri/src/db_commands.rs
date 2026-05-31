@@ -287,6 +287,32 @@ pub async fn show_notification(
         .map_err(|e| e.to_string())
 }
 
+// ── App tracker commands ──────────────────────────────────────────────────────
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+pub struct AppUsageRow {
+    pub app_name: String,
+    pub seconds: i64,
+}
+
+/// Returns today's passive app usage sorted by time spent descending.
+#[tauri::command]
+pub async fn get_app_usage_today(
+    state: State<'_, SqlitePool>,
+) -> Result<Vec<AppUsageRow>, String> {
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    sqlx::query_as::<_, AppUsageRow>(
+        "SELECT app_name, seconds FROM app_tracking
+         WHERE date = ? ORDER BY seconds DESC LIMIT 30",
+    )
+    .bind(&today)
+    .fetch_all(state.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 /// Brings the main window to the front — used by the global shortcut
 /// when no timer is running, so the user can start one immediately.
 #[tauri::command]

@@ -1,7 +1,8 @@
 import { createSignal, createEffect, For, Show } from "solid-js";
 import {
   listTimeEntries, searchTimeEntries, deleteTimeEntry, getWeeklySummary,
-  TimeEntry, WeeklySummary, WeeklySummaryRow,
+  getAppUsageToday,
+  TimeEntry, WeeklySummary, WeeklySummaryRow, AppUsageRow,
 } from "../lib/local-api";
 import { theme, setTheme, type Theme } from "../theme";
 
@@ -135,6 +136,11 @@ export default function TimeEntriesPage(props: Props) {
   const [weekly, setWeekly] = createSignal<WeeklySummary | null>(null);
   const [weeklyLoading, setWeeklyLoading] = createSignal(false);
 
+  /* App tracker */
+  const [appMode, setAppMode] = createSignal(false);
+  const [appUsage, setAppUsage] = createSignal<AppUsageRow[]>([]);
+  const [appLoading, setAppLoading] = createSignal(false);
+
   async function loadWeekly() {
     setWeeklyLoading(true);
     try { setWeekly(await getWeeklySummary()); }
@@ -144,10 +150,22 @@ export default function TimeEntriesPage(props: Props) {
 
   function openWeekly() {
     setSearchMode(false); setSearchQuery(""); setSearchResults([]);
+    setAppMode(false);
     setWeeklyMode(true);
     loadWeekly();
   }
   function closeWeekly() { setWeeklyMode(false); }
+
+  async function openAppTracker() {
+    setSearchMode(false); setSearchQuery(""); setSearchResults([]);
+    setWeeklyMode(false);
+    setAppMode(true);
+    setAppLoading(true);
+    try { setAppUsage(await getAppUsageToday()); }
+    catch { /* silent */ }
+    finally { setAppLoading(false); }
+  }
+  function closeAppTracker() { setAppMode(false); }
 
   /* Calendar */
   const [calendarOpen, setCalendarOpen] = createSignal(false);
@@ -221,14 +239,8 @@ export default function TimeEntriesPage(props: Props) {
   const isToday = () => toISODate(selectedDate()) === toISODate(todayDate());
   const syncDot = () => !props.syncOnline || props.pendingCount > 0 ? YELLOW : "#43A047";
   const syncTip = () => props.syncing ? "Syncing…" : !props.syncOnline ? "Offline" : props.pendingCount > 0 ? `${props.pendingCount} pending` : "Synced";
-  const activeView = () => weeklyMode() ? "weekly" : searchMode() ? "search" : "list";
-
-  function navBtnStyle(view: string) {
-    const active = activeView() === view;
-    return active
-      ? `background:transparent;border:none;cursor:pointer`
-      : `background:transparent;border:none;cursor:pointer`;
-  }
+  const activeView = () =>
+    appMode() ? "apps" : weeklyMode() ? "weekly" : searchMode() ? "search" : "list";
 
   return (
     <div class="flex h-screen overflow-hidden" style={`background:${WHITE}`}>
@@ -287,6 +299,19 @@ export default function TimeEntriesPage(props: Props) {
             </Show>
             <i class="ri-bar-chart-box-line text-lg"
                style={`color:${activeView() === "weekly" ? RED : GRAY};transition:color 0.15s`} />
+          </button>
+
+          {/* App Tracker */}
+          <button title="Today's app usage (passive tracker)"
+            onClick={() => activeView() === "apps" ? closeAppTracker() : openAppTracker()}
+            class="relative h-12 flex items-center justify-center"
+            style="background:transparent;border:none;cursor:pointer"
+          >
+            <Show when={activeView() === "apps"}>
+              <div class="absolute left-0 top-2 bottom-2 w-[3px]" style={`background:${BLUE}`} />
+            </Show>
+            <i class="ri-computer-line text-lg"
+               style={`color:${activeView() === "apps" ? BLUE : GRAY};transition:color 0.15s`} />
           </button>
         </div>
 
@@ -674,8 +699,6 @@ export default function TimeEntriesPage(props: Props) {
                         ? PROJECT_COLORS[gi % PROJECT_COLORS.length]
                         : GRAY;
                       const projectPct = (group.total_seconds / maxTotal) * 100;
-                      const textOnColor = color === YELLOW ? BLACK : WHITE;
-
                       return (
                         <div>
                           {/* Project row */}
@@ -748,6 +771,105 @@ export default function TimeEntriesPage(props: Props) {
           </Show>
         </Show>
       </div>
+
+      {/* ═══ APP TRACKER VIEW ═══ */}
+      <Show when={activeView() === "apps"}>
+
+        {/* Header */}
+        <div class="h-12 flex items-center justify-between px-4 shrink-0"
+             style={`border-bottom:2px solid ${BLUE};background:${WHITE}`}>
+          <span class="font-bold text-sm uppercase tracking-wide" style={`color:${BLACK}`}>
+            Today's Apps
+          </span>
+          <button
+            class="text-xs font-bold uppercase tracking-wide"
+            style={`color:${GRAY};background:transparent;border:none;cursor:pointer`}
+            onClick={openAppTracker}
+          >
+            <i class="ri-refresh-line" /> Refresh
+          </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto">
+
+          {/* Platform note */}
+          <div class="px-4 py-2 text-xs" style={`color:${GRAY};border-bottom:1px solid ${BORDER};background:${LIGHT}`}>
+            Polling every 60s · macOS ✅ · Windows ✅ · Linux X11 ✅ · Wayland ⚠️
+          </div>
+
+          {/* Loading */}
+          <Show when={appLoading()}>
+            <div class="flex justify-center py-12">
+              <div class="w-8 h-8 rounded-full animate-spin"
+                   style={`border:3px solid ${BORDER};border-top-color:${BLUE}`} />
+            </div>
+          </Show>
+
+          {/* Empty state */}
+          <Show when={!appLoading() && appUsage().length === 0}>
+            <div class="flex flex-col items-center justify-center py-16 gap-4">
+              <div class="w-16 h-16 rounded-full flex items-center justify-center"
+                   style={`background:${LIGHT};border:1px solid ${BORDER}`}>
+                <i class="ri-computer-line text-2xl" style={`color:${GRAY}`} />
+              </div>
+              <p class="text-xs font-bold uppercase tracking-widest" style={`color:${GRAY}`}>
+                No data yet — wait 60s
+              </p>
+              <p class="text-xs text-center px-8" style={`color:${GRAY}`}>
+                The tracker polls the active window every minute
+              </p>
+            </div>
+          </Show>
+
+          {/* App usage bars */}
+          <Show when={!appLoading() && appUsage().length > 0}>
+            {() => {
+              const maxSecs = () => Math.max(...appUsage().map(r => r.seconds), 1);
+              const totalSecs = () => appUsage().reduce((s, r) => s + r.seconds, 0);
+
+              return (
+                <div class="px-4 py-4 flex flex-col gap-3">
+                  {/* Total */}
+                  <div class="flex items-center justify-between pb-3"
+                       style={`border-bottom:1px solid ${BORDER}`}>
+                    <span class="text-xs font-bold uppercase tracking-widest" style={`color:${GRAY}`}>
+                      Total tracked today
+                    </span>
+                    <span class="font-mono font-black text-sm" style={`color:${BLACK}`}>
+                      {formatHours(totalSecs())}
+                    </span>
+                  </div>
+
+                  {/* Per-app rows */}
+                  <For each={appUsage()}>
+                    {(row) => {
+                      const pct = () => (row.seconds / maxSecs() * 100).toFixed(1);
+                      return (
+                        <div>
+                          <div class="flex items-center justify-between mb-1">
+                            <span class="text-sm font-semibold truncate" style={`color:${BLACK};max-width:180px`}>
+                              {row.app_name}
+                            </span>
+                            <span class="font-mono text-xs tabular-nums" style={`color:${GRAY}`}>
+                              {formatHours(row.seconds)}
+                            </span>
+                          </div>
+                          {/* Proportional bar */}
+                          <div class="h-2 w-full" style={`background:${BORDER}`}>
+                            <div class="h-full transition-all duration-500"
+                                 style={`width:${pct()}%;background:${BLUE}`} />
+                          </div>
+                        </div>
+                      );
+                    }}
+                  </For>
+                </div>
+              );
+            }}
+          </Show>
+
+        </div>
+      </Show>
 
       {/* ── SETTINGS PANEL ───────────────────────────────── */}
       <Show when={settingsOpen()}>
