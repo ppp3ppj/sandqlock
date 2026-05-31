@@ -48,6 +48,8 @@ async function tryConnect(
     );
 
     ws.addListener((msg) => {
+      console.log("[SandQlock] WS message received:", msg);
+
       // tauri-plugin-websocket message shape: { type: "Text"|"Binary"|"Close", data: string }
       if (msg.type === "Text") {
         try {
@@ -55,21 +57,27 @@ async function tryConnect(
             type: string;
             message: string;
           };
+          console.log("[SandQlock] WS parsed payload:", payload);
+
           if (payload.type === "nudge") {
             onNudge(payload.message);
+            console.log("[SandQlock] Calling show_notification...");
             // Show native OS notification
             invoke("show_notification", {
               title: "SandQlock — Reminder",
               body: payload.message,
-            }).catch(() => {});
+            })
+              .then(() => console.log("[SandQlock] Notification shown ✓"))
+              .catch((err) => console.error("[SandQlock] show_notification failed:", err));
           }
-        } catch {
-          /* ignore malformed messages */
+        } catch (err) {
+          console.error("[SandQlock] Failed to parse WS message:", err, msg.data);
         }
       }
 
       // Reconnect on server close
       if (msg.type === "Close") {
+        console.log("[SandQlock] WS closed, will reconnect...");
         ws = null;
         scheduleReconnect(token, onNudge);
       }
