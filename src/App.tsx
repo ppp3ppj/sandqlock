@@ -2,6 +2,7 @@ import { createSignal, onMount, Show } from "solid-js";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { initTheme } from "./theme";
+import { connectWsNotifications, disconnectWsNotifications } from "./lib/ws-notifications";
 import LoginPage from "./pages/LoginPage";
 import TimeEntriesPage from "./pages/TimeEntriesPage";
 import TimeEntryFormPage from "./pages/TimeEntryFormPage";
@@ -87,10 +88,7 @@ function App() {
         new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
       ]);
       if (t) {
-        setToken(t);
-        setLoggedIn(true);
-        runSync(t, true);
-        startSyncInterval(t);
+        handleLogin(t);
       }
     } catch {
       // proceed as logged out
@@ -128,6 +126,7 @@ function App() {
   async function handleLogout() {
     clearInterval(intervalRef.id);
     clearInterval(syncIntervalRef.id);
+    disconnectWsNotifications();
     setTimerRunning(false);
     setTimerSeconds(0);
     setTimerDraft(null);
@@ -142,6 +141,13 @@ function App() {
     setLoggedIn(true);
     runSync(t, true);
     startSyncInterval(t);
+    // Connect raw WebSocket for instant nudge delivery (no polling, no DB)
+    connectWsNotifications(t, (message) => {
+      invoke("show_notification", {
+        title: "SandQlock — Reminder",
+        body: message,
+      }).catch(() => {});
+    }).catch(() => {});
   }
 
   // ── Timer ──────────────────────────────────────────────────────────────────

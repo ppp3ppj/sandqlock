@@ -23,6 +23,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         // ── New: OS notifications ─────────────────────────
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_websocket::init())
         // ── New: Global keyboard shortcut ─────────────────
         //    CmdOrControl+Shift+T from any app → toggle timer
         .plugin(
