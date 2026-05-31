@@ -2,9 +2,11 @@ import { createSignal, onMount, Show } from "solid-js";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { initTheme } from "./theme";
+import { connectWsNotifications, disconnectWsNotifications, type NudgePayload } from "./lib/ws-notifications";
 import LoginPage from "./pages/LoginPage";
 import TimeEntriesPage from "./pages/TimeEntriesPage";
 import TimeEntryFormPage from "./pages/TimeEntryFormPage";
+import GhostWindow from "./pages/GhostWindow";
 import { getToken, clearToken } from "./lib/auth-store";
 import { TimeEntry, createTimeEntry, triggerSync, getSyncStatus } from "./lib/local-api";
 import "./App.css";
@@ -32,11 +34,21 @@ function formatDurationShort(seconds: number): string {
   return `${s}s`;
 }
 
+// Detected once at module load — ghost windows open with ?ghost=1
+const IS_GHOST_WINDOW = window.location.search.includes("ghost=1");
+
 function App() {
+  // Ghost window: render the minimal overlay UI, skip all auth/sync logic
+  if (IS_GHOST_WINDOW) {
+    return <GhostWindow />;
+  }
+
   const [loggedIn, setLoggedIn] = createSignal(false);
   const [checking, setChecking] = createSignal(true);
   const [token, setToken] = createSignal("");
   const [view, setView] = createSignal<View>("list");
+  // In-app nudge popup (mode: "popup" from admin)
+  const [nudgePopup, setNudgePopup] = createSignal<string | null>(null);
 
   // Form state
   const [editingEntry, setEditingEntry] = createSignal<TimeEntry | null>(null);
@@ -87,10 +99,7 @@ function App() {
         new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
       ]);
       if (t) {
-        setToken(t);
-        setLoggedIn(true);
-        runSync(t, true);
-        startSyncInterval(t);
+        handleLogin(t);
       }
     } catch {
       // proceed as logged out
@@ -128,6 +137,7 @@ function App() {
   async function handleLogout() {
     clearInterval(intervalRef.id);
     clearInterval(syncIntervalRef.id);
+    disconnectWsNotifications();
     setTimerRunning(false);
     setTimerSeconds(0);
     setTimerDraft(null);
@@ -142,6 +152,17 @@ function App() {
     setLoggedIn(true);
     runSync(t, true);
     startSyncInterval(t);
+    // Connect raw WebSocket for instant nudge delivery (no polling, no DB)
+    connectWsNotifications(t, ({ message, mode }: NudgePayload) => {
+      if (mode === "popup") {
+        invoke("show_main_window").catch(() => {});
+        setNudgePopup(message);
+      } else if (mode === "ghost") {
+        // Open the always-on-top frameless ghost window
+        invoke("show_ghost_window", { message }).catch(() => {});
+      }
+      // "notify" mode: OS notification handled inside ws-notifications.ts
+    }).catch(() => {});
   }
 
   // ── Timer ──────────────────────────────────────────────────────────────────
@@ -303,6 +324,8 @@ function App() {
             pendingCount={pendingCount()}
             lastSyncAt={lastSyncAt()}
             onSync={() => runSync(token())}
+            nudgePopup={nudgePopup()}
+            onDismissNudge={() => setNudgePopup(null)}
           />
         </Show>
       </Show>

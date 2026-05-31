@@ -1,6 +1,12 @@
+use std::sync::Mutex;
+
 use sqlx::SqlitePool;
 use tauri::{Manager, State};
 use uuid::Uuid;
+
+/// Shared app state — holds the nudge message so the ghost webview can read it
+/// after the window is created (avoids URL encoding edge cases).
+pub struct GhostMessage(pub Mutex<Option<String>>);
 
 use crate::models::{
     CategoryRow, CreateTimeEntryInput, DailySummaryRow, ProjectRow, SyncResult, SyncStatus,
@@ -290,6 +296,60 @@ pub async fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
         let _ = window.set_focus();
     }
     Ok(())
+}
+
+// ── Ghost Window commands ─────────────────────────────────────────────────────
+
+/// Opens a frameless, always-on-top, skip-taskbar window with the nudge message.
+/// The window can't be minimized or closed by the user — only "Got it" dismisses it.
+/// Costs ~0 extra RAM because the webview is shared with the main app.
+#[tauri::command]
+pub async fn show_ghost_window(
+    message: String,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    // Store message in state so the ghost webview can fetch it via invoke
+    *app.state::<GhostMessage>().0.lock().unwrap() = Some(message);
+
+    // Close any existing ghost window first
+    if let Some(w) = app.get_webview_window("ghost") {
+        let _ = w.close();
+        // Brief pause so the OS removes the old window before spawning a new one
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    }
+
+    // Load the main app with ?ghost=1 — App.tsx detects this and renders GhostWindow
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        "ghost",
+        tauri::WebviewUrl::App("?ghost=1".into()),
+    )
+    .title("SandQlock — Reminder")
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .decorations(false)   // no title bar, no close button
+    .inner_size(340.0, 165.0)
+    .build()
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// Called from the ghost window's "Got it" button to close itself.
+#[tauri::command]
+pub async fn close_ghost_window(app: tauri::AppHandle) -> Result<(), String> {
+    *app.state::<GhostMessage>().0.lock().unwrap() = None;
+    if let Some(w) = app.get_webview_window("ghost") {
+        w.close().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Ghost webview calls this on mount to retrieve the nudge message.
+#[tauri::command]
+pub fn get_ghost_message(app: tauri::AppHandle) -> Option<String> {
+    app.state::<GhostMessage>().0.lock().unwrap().clone()
 }
 
 // ── Sync commands ─────────────────────────────────────────────────────────────

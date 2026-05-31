@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "ghost",
+  "description": "Capabilities for the always-on-top ghost notification window",
+  "windows": ["ghost"],
+  "permissions": [
+    "core:default"
+  ]
+}
