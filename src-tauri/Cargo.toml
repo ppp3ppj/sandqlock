@@ -32,3 +32,6 @@ dunce = "1"
 tauri-plugin-websocket = "2"
 tokio = { version = "1.52.3", features = ["time"] }
 chrono = "0.4"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { version = "0.3", features = ["winuser", "processthreadsapi", "psapi", "handleapi", "winnt"] }
